@@ -1,0 +1,7 @@
+mujoco==4.0.1
+robot_descriptions==3.3.0
+gymnasium==1.4.0
+numpy==2.5.4
+imageio==2.38.1
+imageio-ffmpeg==0.8.1
+pytest==9.2.0

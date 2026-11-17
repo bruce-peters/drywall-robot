@@ -1,0 +1,81 @@
+<!--
+  Drywall placement work cell. The Franka Panda (Menagerie, no hand) and the suction plate
+  are attached to the "robot_base" frame programmatically in drywall_env/model.py.
+
+  Frames: world = robot base frame (Panda link0 at the origin, z up, x towards the wall).
+  Panel frame: x = long side (0.6 m), y = short side (0.4 m), z = face normal.
+-->
+<mujoco model="drywall_cell">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.002" integrator="implicitfast" impratio="10"/>
+
+  <visual>
+    <global offwidth="640" offheight="480"/>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.45 0.45 0.45" specular="0.1 0.1 0.1"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.25 0.26 0.28" rgb2="0.32 0.33 0.35"
+             width="256" height="256"/>
+    <material name="floor" texture="grid" texrepeat="6 6" reflectance="0.05"/>
+    <material name="wall" rgba="0.85 0.82 0.74 1"/>
+    <material name="drywall" rgba="0.93 0.93 0.90 1"/>
+    <material name="rack" rgba="0.45 0.30 0.18 1"/>
+    <material name="ledge" rgba="0.55 0.55 0.6 1"/>
+    <material name="target" rgba="0.1 0.8 0.2 0.35"/>
+    <material name="plate" rgba="0.15 0.35 0.75 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0.3 0 2.0" dir="0 0 -1" directional="false" castshadow="true"/>
+    <light pos="-1 -1 1.5" dir="1 1 -1" castshadow="false" diffuse="0.4 0.4 0.4"/>
+    <geom name="floor" type="plane" size="3 3 0.05" material="floor"/>
+
+    <frame name="robot_base" pos="0 0 0"/>
+
+    <!-- Wall: front face at x = 0.75 m, 1.3 m tall. -->
+    <body name="wall" pos="0.80 0 0.65">
+      <geom name="wall" type="box" size="0.05 1.0 0.65" material="wall"/>
+    </body>
+
+    <!-- Target: site at the desired panel-centre pose when flush with the wall
+         (x = wall face - half panel thickness). Panel x -> -world y, panel y -> world z,
+         panel z -> -world x (face normal pointing at the robot). The ledge and the visible
+         target rectangle are children, so randomizing the target moves them together. -->
+    <body name="target" pos="0.745 0 0.70" xyaxes="0 -1 0 0 0 1">
+      <site name="target" type="box" size="0.3 0.2 0.0005" group="4"/>
+      <geom name="target_marker" type="box" size="0.3 0.2 0.0005" pos="0 0 -0.0045"
+            material="target" contype="0" conaffinity="0"/>
+      <!-- Ledge: top surface 3 mm below the target's bottom edge (local y = -0.2),
+           protrudes 4 cm from the wall face (local z from -0.005 to +0.035). -->
+      <geom name="ledge" type="box" size="0.36 0.01 0.02" pos="0 -0.213 0.015" material="ledge"/>
+    </body>
+
+    <!-- Rack: table the panel lies on (top surface at z = 0.20 m). The panel lies with its
+         long side along world y (panel x = -world y), so the pick orientation equals the
+         Panda's home "tool down" orientation and the wall orientation is a 90 deg pitch. -->
+    <body name="rack" pos="0.35 -0.50 0.10">
+      <geom name="rack" type="box" size="0.16 0.26 0.10" material="rack"/>
+    </body>
+
+    <!-- Drywall panel: 0.6 x 0.4 x 0.01 m, mass 1.5 kg (randomized at reset). -->
+    <body name="panel" pos="0.35 -0.50 0.2055" euler="0 0 -1.5707963">
+      <freejoint name="panel"/>
+      <geom name="panel" type="box" size="0.3 0.2 0.005" mass="1.5" material="drywall"
+            friction="0.8 0.005 0.0001"/>
+      <site name="panel" size="0.005"/>
+    </body>
+  </worldbody>
+
+  <equality>
+    <!-- Suction attachment and the wall fixture. Both off at start; relpose is set at
+         runtime to the current relative pose so nothing snaps when they switch on. -->
+    <weld name="grasp" body1="panda/plate" body2="panel" active="false"/>
+    <weld name="fixture" body1="wall" body2="panel" active="false"/>
+  </equality>
+
+  <contact>
+    <exclude body1="panda/plate" body2="panel"/>
+  </contact>
+</mujoco>
