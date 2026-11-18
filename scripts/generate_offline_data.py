@@ -31,28 +31,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 _WORKER = {}
 
 
-def _init_worker(bc_path):
+def _init_worker(bc_path, challenge="easy"):
     import torch
 
     torch.set_num_threads(1)
-    from drywall_env import DrywallPlacementEnv
+    from drywall_env import DrywallPlacementEnv, EnvConfig
     from drywall_env.policies import load_policy
 
-    _WORKER["env"] = DrywallPlacementEnv()
+    _WORKER["env"] = DrywallPlacementEnv(EnvConfig(challenge=challenge, region="full"))
     _WORKER["bc"] = load_policy(bc_path) if bc_path else None
 
 
 def _episode(job):
     from drywall_env.policies import ScriptedPolicy
-    from drywall_env.transitions import REWARD_TERMS, state_from_obs
+    from drywall_env.scripted_hard import make_scripted
+    from drywall_env.transitions import REWARD_TERMS, STATE_DIM, STATE_DIM_V2, state_from_obs
 
     seed, behaviour, noise = job
     env = _WORKER["env"]
+    hard = env.cfg.challenge == "hard"
+    sdim = STATE_DIM_V2 if hard else STATE_DIM
     rng = np.random.default_rng(seed + 7_000_000)
-    pol = ScriptedPolicy(env.cfg) if behaviour == "scripted" else _WORKER["bc"]
+    if behaviour == "explore":  # hard: scripted controller in explore mode (its own setpoint variance + noise)
+        pol = make_scripted(env.cfg, mode="explore", seed=seed)
+    else:
+        pol = ScriptedPolicy(env.cfg) if behaviour == "scripted" else _WORKER["bc"]
     obs, info = env.reset(seed=seed)
     pol.reset()
-    states, actions = [state_from_obs(obs)], []
+    states, actions = [state_from_obs(obs, sdim)], []
     terms = {k: [] for k in REWARD_TERMS}
     terminated = truncated = False
     while not (terminated or truncated):
@@ -61,7 +67,7 @@ def _episode(job):
             a[:6] += rng.normal(0.0, noise, 6)
         a = np.clip(a, -1.0, 1.0).astype(np.float32)
         obs, _, terminated, truncated, info = env.step(a)
-        states.append(state_from_obs(obs))
+        states.append(state_from_obs(obs, sdim))
         actions.append(a)
         for k in REWARD_TERMS:
             terms[k].append(info["reward_terms"][k])
@@ -73,7 +79,8 @@ def _episode(job):
 
 
 def main():
-    from drywall_env.transitions import OFFLINE_SEEDS, REWARD_TERMS, check_not_test_seeds, save_transitions
+    from drywall_env.transitions import (HARD_OFFLINE_SEEDS, OFFLINE_SEEDS, REWARD_TERMS, check_not_test_seeds,
+                                         save_transitions)
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data/offline_sim.npz")
@@ -83,19 +90,30 @@ def main():
     ap.add_argument("--bc-frac", type=float, default=0.5, help="fraction of episodes from the BC policy")
     ap.add_argument("--max-noise", type=float, default=0.3)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
+                    help="hard: full layout distribution, behaviour = scripted controller in explore mode "
+                         "(per-episode setpoint variance + smooth noise), 46-D state")
     args = ap.parse_args()
+    if args.challenge == "hard":
+        if args.n == len(OFFLINE_SEEDS):
+            args.n = len(HARD_OFFLINE_SEEDS)
+        if args.start_seed == OFFLINE_SEEDS[0]:
+            args.start_seed = HARD_OFFLINE_SEEDS[0]
 
     seeds = list(range(args.start_seed, args.start_seed + args.n))
     check_not_test_seeds(seeds)
     jobs = []
     for s in seeds:
         r = np.random.default_rng(s)
-        beh = "bc" if (args.bc and r.uniform() < args.bc_frac) else "scripted"
+        if args.challenge == "hard" and not args.bc:
+            jobs.append((s, "explore", 0.0))  # noise comes from the explore mode itself
+            continue
+        beh = "bc" if (args.bc and r.uniform() < args.bc_frac) else ("explore" if args.challenge == "hard" else "scripted")
         jobs.append((s, beh, float(r.uniform(0.0, args.max_noise))))
 
     t0 = time.time()
     episodes = []
-    with Pool(args.workers, initializer=_init_worker, initargs=(args.bc,)) as pool:
+    with Pool(args.workers, initializer=_init_worker, initargs=(args.bc, args.challenge)) as pool:
         for i, ep in enumerate(pool.imap(_episode, jobs, chunksize=4)):
             episodes.append(ep)
             if (i + 1) % 100 == 0:
@@ -104,14 +122,14 @@ def main():
                       f"{time.time() - t0:.0f} s", flush=True)
 
     summary = {"episodes": len(episodes), "transitions": int(sum(len(e["actions"]) for e in episodes))}
-    for beh in ("scripted", "bc"):
+    for beh in ("scripted", "explore", "bc"):
         es = [e for e in episodes if e["info"]["behaviour"] == beh]
         if es:
             summary[beh] = {"episodes": len(es), "success_rate": float(np.mean([e["success"] for e in es])),
                             "drop_rate": float(np.mean([e["info"]["dropped"] for e in es])),
                             "collision_episode_rate": float(np.mean([e["info"]["collision_steps"] > 0 for e in es]))}
     summary["success_rate"] = float(np.mean([e["success"] for e in episodes]))
-    meta = {"source": "env rollouts (generate_offline_data.py)", "bc_checkpoint": args.bc,
+    meta = {"source": "env rollouts (generate_offline_data.py)", "challenge": args.challenge, "bc_checkpoint": args.bc,
             "max_noise": args.max_noise, "bc_frac": args.bc_frac, "seeds": [seeds[0], seeds[-1]],
             "reward_terms_included": list(REWARD_TERMS), "summary": summary}
     save_transitions(args.out, episodes, meta)

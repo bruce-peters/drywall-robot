@@ -21,9 +21,10 @@ import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv  # noqa: E402
 from drywall_env.policies import ActorNet, action_chunks, save_actor  # noqa: E402
-from drywall_env.training_utils import JsonlLogger, set_seed, validation_rollouts  # noqa: E402
+from drywall_env.training_utils import (  # noqa: E402
+    JsonlLogger, default_log_path, make_env, set_seed, snapshot_path, validation_rollouts,
+)
 from drywall_env.transitions import UMI_REWARD_TERMS, episode_slices, load_many  # noqa: E402
 
 
@@ -31,7 +32,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", default=["data/umi_transitions.npz"])
     ap.add_argument("--out", default="checkpoints/bc_umi.pt")
-    ap.add_argument("--log", default=None, help="default runs/<out stem>/log.jsonl")
+    ap.add_argument("--log", default=None, help="default runs/<checkpoint subfolder>/<out stem>/log.jsonl")
     ap.add_argument("--all-episodes", action="store_true", help="also train on failed demos")
     ap.add_argument("--steps", type=int, default=30000)
     ap.add_argument("--batch", type=int, default=512)
@@ -45,11 +46,13 @@ def main():
     ap.add_argument("--rollout-every", type=int, default=5000, help="validation rollouts (0 = off)")
     ap.add_argument("--rollout-episodes", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
+                    help="env used for the validation rollouts (hard: seeds 25000-25049, full region)")
     args = ap.parse_args()
 
     set_seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    log_path = args.log or f"runs/{Path(args.out).stem}/log.jsonl"
+    log_path = args.log or default_log_path(args.out)
     D = load_many(args.data, reward_terms=UMI_REWARD_TERMS)  # refuses test seeds; rewards unused by BC
 
     # episodes -> train / val split (by episode, so the val loss measures generalisation)
@@ -66,7 +69,7 @@ def main():
     A = torch.as_tensor(chunks, device=dev)
     tr_t, va_t = torch.as_tensor(tr, device=dev), torch.as_tensor(va, device=dev)
 
-    actor = ActorNet(hidden=args.hidden, chunk=args.chunk).to(dev)
+    actor = ActorNet(state_dim=D["observations"].shape[1], hidden=args.hidden, chunk=args.chunk).to(dev)
     actor.norm.fit(D["observations"][tr])
     opt = torch.optim.AdamW(actor.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.steps)
@@ -76,7 +79,7 @@ def main():
     print(f"BC on {len(train_eps)} train / {len(val_eps)} val episodes ({len(tr)} transitions), "
           f"device {dev}", flush=True)
 
-    env = DrywallPlacementEnv() if args.rollout_every else None
+    env = make_env(args.challenge) if args.rollout_every else None
     t0, acc = time.time(), []
     for step in range(1, args.steps + 1):
         b = tr_t[torch.randint(len(tr_t), (args.batch,), device=dev)]
@@ -102,6 +105,8 @@ def main():
         if args.rollout_every and (step % args.rollout_every == 0 or step == args.steps):
             actor.eval()
             s = validation_rollouts(actor, env, args.rollout_episodes, n_exec=args.n_exec)
+            save_actor(snapshot_path(args.out, step), actor, extra={"algo": "bc", "snapshot_step": step,
+                                                                    "n_exec": args.n_exec or args.chunk})
             actor.train()
             log.log("val_rollout", step, **s)
             print(f"step {step:6d}  VAL ROLLOUTS success {100 * s['success_rate']:.0f} %  "

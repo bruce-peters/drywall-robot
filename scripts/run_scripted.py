@@ -1,6 +1,9 @@
 """Run one scripted episode and save a video.
 
     python scripts/run_scripted.py --seed 0 --video out.mp4
+    python scripts/run_scripted.py --challenge hard --seed 1 --video media/hard_challenge/scripted_hard_seed1.mp4
+
+--label burns a caption into every frame (default: "Scripted controller (no learning) | ...").
 """
 
 from __future__ import annotations
@@ -13,17 +16,24 @@ import imageio.v2 as imageio
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv, ScriptedController  # noqa: E402
+from drywall_env import DrywallPlacementEnv, EnvConfig  # noqa: E402
+from drywall_env.scripted_hard import make_scripted  # noqa: E402
+from drywall_env.video import label_frame  # noqa: E402
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--video", type=str, default=None, help="output .mp4 (omit for no video)")
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy")
+    ap.add_argument("--region", choices=["full", "demo", "ood"], default="full", help="hard only")
+    ap.add_argument("--mode", choices=["demo", "explore"], default="demo", help="hard only: controller mode")
+    ap.add_argument("--label", type=str, default=None, help="caption burned into the video ('' = none)")
     args = ap.parse_args()
 
-    env = DrywallPlacementEnv(render_mode="rgb_array" if args.video else None)
-    ctrl = ScriptedController(env.cfg)
+    cfg = EnvConfig(challenge=args.challenge, region=args.region if args.challenge == "hard" else "full")
+    env = DrywallPlacementEnv(cfg, render_mode="rgb_array" if args.video else None)
+    ctrl = make_scripted(env.cfg, mode=args.mode, seed=args.seed)
     obs, info = env.reset(seed=args.seed)
     print("randomization:", {k: round(v, 4) for k, v in info["randomization"].items()})
 
@@ -53,6 +63,13 @@ def main():
 
     if args.video:
         fps = env.metadata["render_fps"]
+        label = args.label
+        if label is None and args.challenge == "hard":
+            outcome = "SUCCESS" if info["success"] else ("DROPPED" if info["dropped"] else "FAILED")
+            label = (f"Scripted controller (no learning) | hard challenge, {args.mode} mode | seed {args.seed} | "
+                     f"{outcome}")
+        if label:
+            frames = [label_frame(f, label) for f in frames]
         # hold the last frame for 1 s so the final placement is visible
         frames += [frames[-1]] * fps
         imageio.mimsave(args.video, frames, fps=fps, macro_block_size=16)

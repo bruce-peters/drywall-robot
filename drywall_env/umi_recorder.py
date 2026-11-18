@@ -145,8 +145,14 @@ class UMIRecorder:
             self._mirrors.append((cam, idx, mr, mc))
         # Same overview viewpoint as env.render() (behind-left of the robot, looking at the wall).
         self._ext_cam = mujoco.MjvCamera()
-        self._ext_cam.lookat[:] = [0.45, -0.15, 0.5]
-        self._ext_cam.distance, self._ext_cam.azimuth, self._ext_cam.elevation = 2.2, 35.0, -25.0
+        if getattr(env.cfg, "challenge", "easy") == "hard":
+            # Hard challenge: wall and rack can be anywhere around the robot, so the static external
+            # camera is mounted high above the cell looking down (ceiling RGB-D), covering the ring.
+            self._ext_cam.lookat[:] = [0.0, 0.0, 0.3]
+            self._ext_cam.distance, self._ext_cam.azimuth, self._ext_cam.elevation = 3.0, 180.0, -72.0
+        else:
+            self._ext_cam.lookat[:] = [0.45, -0.15, 0.5]
+            self._ext_cam.distance, self._ext_cam.azimuth, self._ext_cam.elevation = 2.2, 35.0, -25.0
 
     # ------------------------------------------------------------------ calibration
     def calibration(self) -> dict:

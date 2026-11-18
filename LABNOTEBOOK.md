@@ -720,3 +720,239 @@ train_iql.py (C.B) → comparison (C.C).
   scatter, collisions, length, stacked failure modes).
 - Fixes: step axis shown as "50k"; a Wilson error bar at 100 % came out as −1e-14 and crashed matplotlib
   → clipped at 0.
+
+## 2026-11-18 — Part C committed; preparing a harder challenge
+
+- **Commit `0f50f29`** "Part C: …" as the user (no trailers). Before it, the IQL failure video was re-rendered
+  with a new `eval_policy.py --failure-kind` option, so it shows IQL's dominant failure (released_off_wall,
+  test seed 10009, 5 mm off target but > 2 mm from the wall) instead of the first failure (a never_grasped
+  episode).
+- **User proposal:** make the task harder, with many different rack positions around the robot and placement
+  positions on the wall, re-collect the UMI data, and give the scripted "demonstrator" large variance in its
+  setpoints. My analysis and open questions are in chat; nothing on the new task is built yet.
+- **[DECISION]** (user) Bundle the current experiment as `easy_challenge`: `git mv` of everything in `runs/`,
+  `results/`, `checkpoints/` and `media/` into `<dir>/easy_challenge/`, except the Part A demo
+  `media/scripted_seed0.mp4` (user: don't move it).
+  - README paths updated; the Part B/C commands now pass `--results-dir` / `--out-dir` explicitly so
+    re-running them writes back into easy_challenge.
+  - `training_utils.default_log_path`: logs follow the checkpoint's subfolder
+    (`checkpoints/hard_challenge/x.pt` → `runs/hard_challenge/x/log.jsonl`).
+  - `view_policy.py` finds `checkpoints/**/*.pt` and labels models `easy/<name>` / `hard/<name>`.
+  - `pytest -q`: 32 passed. Not committed yet (it goes with the hard-challenge phase).
+
+### Hard challenge: decisions (user, 2026-11-18)
+- **[DECISION]** (user) Racks on a **full ring around the robot, including behind it**. Physical limits are
+  measured with a reachability sweep: Panda joint1 is ±166°, so directly behind may be excluded, and racks
+  can't overlap the wall.
+- **[DECISION]** (user) **UMI demos cover only a limited part** of the new distribution. Sim offline data
+  and the tests cover the full distribution, so we can measure whether sim data extends the policy beyond the
+  demos (the task doc's central question). Two test sets: in-demo-distribution and out-of-demo-distribution.
+- **[DECISION]** (user) The scripted controller gets **two modes**: `demo` (moderate per-episode setpoint
+  variance; a competent but varied human stand-in, mostly successes) and `explore` (large setpoint variance
+  plus noise; many failures), for the UMI demos and the sim offline data respectively.
+- **[DECISION]** (user) **The state may contain nothing the UMI pipeline couldn't get.** The added feature is
+  the panel pose relative to the EE, computed only from the EE pose (forward kinematics / UMI SLAM pose) and
+  the panel pose *estimate*, both already in the deployable state, re-expressed in the hand frame. State
+  37-D → 46-D. Easy-challenge checkpoints keep the 37-D state (the version is chosen from the network's input
+  size).
+- **[DECISION]** (user) Wider placement positions on the wall, sized by the reachability sweep.
+
+## 2026-11-18 — Hard challenge: environment, scripted controller, data pipeline
+
+### Reachability sweep (scratchpad `reach_sweep.py`, static DLS IK, 4 joint7 seeds, joint margin ≥ 0.05 rad)
+- **Pick (tool-down at z 0.214 + hover 0.314):** racks at **0.6–0.7 m** are reachable all around the robot up
+  to ±165°, for 10–11 of 12 panel yaws. 0.4–0.5 m fails behind the robot. The unreachable yaws are always a
+  band **+15°…+75° relative to the radial direction** (wrist limit).
+- **Place (EE facing the wall at x = 0.74 and the 10 cm pre-align at 0.64):** reachable only in a band of
+  **z ≈ 0.5–0.75 m**, about ±0.25–0.3 m sideways at z 0.6–0.65, narrowing to ±0.15 m at 0.75; nothing above
+  0.8 m.
+- User asked whether the panel and target poses come from perception: no. They are sim truth (+ optional
+  noise, default 0), a stand-in for perception (documented). **[DECISION]** (user) **no perception noise**
+  for the hard challenge.
+- **[DECISION]** (user) "Allow the placement zone and pickup zone to appear anywhere around the robot" →
+  the wall itself rotates around the robot.
+
+### Environment (`EnvConfig(challenge="hard", region=...)`; `challenge="easy"` is bit-identical to before:
+seed 0 still succeeds at step 175, 3.05 mm, return −27.86; env tests pass)
+- **Wall:** angle θ ~ U(−150°, 150°). The wall, target and ledge are the easy poses rotated by θ about the
+  base z.
+- **Target on the wall:** dy ~ U(±0.20) m, centre height ~ U(0.55, 0.75) m.
+- **Rack:** angle φ = θ ± U(60°, 150°) with |φ| ≤ 160°, radius U(0.60, 0.70) m, rack x axis radial.
+- **Panel:** ±5 cm on the rack; yaw relative to radial ~ U(−135°, −15°) (avoids the wrist band).
+- **Regions:**
+  - `demo`: θ ∈ ±45°, rack 60–120° to the wall's right (contains the easy layout).
+  - `ood`: the full distribution minus `demo`.
+  - `full`: everything.
+- **Other:** max_steps 500 (long swings); workspace box ±0.85 m; overhead + wall-relative render cameras;
+  overhead external camera in the UMI recorder.
+- **Posture-aware IK (hard only):** the null-space home posture turns joint1 towards the commanded EE azimuth.
+  Without it, the arm reached far-from-0° walls in a twisted posture and joint6 hit its 3.75 rad limit during
+  contact (seeds 0/13/21: IK residual 30–110 mm, mid-air release, drop).
+
+### Scripted controller (`drywall_env/scripted_hard.py`, `make_scripted(cfg, mode, seed)`)
+- **Wall frame:** everything after the pick is computed in the wall frame (θ from the target-pose estimate),
+  so the easy rotate → advance → pre-align → contact → release logic carries over.
+- **New swing_out / swing_in phases:** arcs around the base (pursuit waypoint 0.12 rad ahead). The panel is
+  carried flat, long side tangential.
+- **Modes** (setpoints sampled per episode from the controller seed):
+  - `demo`: moderate variance, small AR(1) noise ≤ 0.03.
+  - `explore`: large variance, AR(1) noise ≤ 0.2 (×0.3 in precision phases), random arc detours, early
+    suction attempts, release delays, negative push depths / ledge clearances (realistic failures).
+- **Iterations:**
+  1. First try: demo 75 % (12 episodes). Arm hit the wall during swing_out (swing at the rack's radius); the
+     carried panel hit the wall during swing_in (corner reach √((r + 0.2)² + 0.3²) > 0.75 for r > 0.47);
+     joint6 limit when rotating at low target heights.
+     → swing radius demo 0.40–0.45 m (explore 0.36–0.52); rotate at z ≥ 0.68 then move down.
+  2. 75 % / 24 episodes with drops → posture-aware IK → 82 % / 40.
+  3. Panel released 2.1–3.1 mm off the wall (stall rule fired while the arm was still creeping)
+     → stall needs 6 steps unless within 1.5 mm → **demo 90–93 % (full), 98 % (demo region)**.
+  4. explore 28 %: stuck wobbling in prealign until time-out → noise ×0.3 in precision phases, max 0.2,
+     60-step phase time-outs → **explore 55 %** (similar to the easy offline data's 57 %).
+
+### Data pipeline (state v2, 46-D)
+- **[DECISION]** (user) State v2 = v1 + panel pose in the EE frame (from the EE pose and the panel
+  *estimate* only). `TorchPolicy` picks the state version from the network's input size, so the easy
+  checkpoints are unaffected.
+- **record_umi.py:** `--challenge hard --region demo --mode demo`; the sidecar stores the full target pose
+  per episode (the wall rotates now).
+- **umi_to_transitions.py:** `--challenge/--region/--state-dim`; uses the sidecar target pose.
+- Smoke: 2 episodes → zarr → transitions → replay 2/2 success, EE tracking 9.3 mm.
+- **Seeds:** UMI 20000–20499 (demo region), sim 21000–22999 (full), validation 25000–25049 (full),
+  **test in-demo 30000–30099 (region demo), test out-of-demo 31000–31099 (region ood)**. All test ranges
+  are refused by the data scripts.
+- **[DECISION]** **Hard sim data = scripted `explore` mode only** (2,000 episodes), not a BC mix as in easy.
+  It is exactly the user's spec ("large variance in its setpoints") and it doesn't wait for BC, so it runs in
+  parallel with the UMI recording.
+- **Training / eval / viewer:** `--challenge hard` everywhere. Eval has `--test in|ood`. The viewer has a
+  region selector and lists only that challenge's checkpoints. Hard viewer drive: scripted 4/4 on ood + demo
+  seeds.
+- **Running now:** `record_umi.py --challenge hard --region demo --mode demo --n 500 --start-seed 20000`
+  → data/hard/umi_hard.npz, and `generate_offline_data.py --challenge hard` → data/hard/offline_sim_hard.npz.
+- **Hard sim data:** `generate_offline_data.py --challenge hard --workers 20` (240 s): 2,000 explore episodes,
+  **649,725 transitions, 63.9 % success, 10.4 % drops, collisions in 40.5 % of episodes**, 173 MB (over
+  GitHub's 100 MB file limit: can't be committed as is).
+- **Started IQL on hard sim data** (no UMI needed): `train_iql.py --challenge hard` with the same settings as
+  easy (200k steps, β 3 and 10, chunk 8 / execute 4, τ 0.7, reward × 0.1), so differences come from the
+  task, not the tuning. Validation: seeds 25000–25049, full region.
+- **Part D draft:** `docs/deployment_proposal.md` (sim-to-real, closed-loop control, failure handling, field
+  deployment). Main recommendation from our results: the learned policy does gross motion and carrying, and a
+  force-controlled, verifiable routine does the last centimetres and the release (where every learned policy
+  failed).
+- UMI recording is the critical path: 38 / 500 after 393 s (slowed while the sim data generated in parallel).
+- **[DECISION]** (user) **Data files are not committed;** the README documents how to regenerate them
+  (section "Datasets", exact commands, seeds and run times for easy and hard). `data/` stays git-ignored.
+  Checkpoints, logs and results are committed.
+- **Hard scripted demo video** (user request): `run_scripted.py` gained `--challenge/--region/--mode/--label`
+  (easy path unchanged: seed 0 still 3.05 mm, return −27.86). The label helper moved to `drywall_env/video.py`
+  (shared with eval_policy.py).
+  `python scripts/run_scripted.py --challenge hard --seed 1 --video media/hard_challenge/scripted_hard_seed1.mp4`
+  → seed 1 (wall 4°, rack behind the robot at 149°): **success at step 258, 3.06 mm / 0.02°, no collision**,
+  269 frames, caption "Scripted controller (no learning) | hard challenge, demo mode | seed 1 | SUCCESS".
+  Frames checked: swing out to the rack behind, grasp, flat carry around the base, panel flush on the target.
+- **First hard IQL (sim only) results, before restart:** validation success **0 % at 20k / 40k / 60k** for both
+  β (collisions 24–56 %, panel ≈ 0.9–1.1 m from the target). The hard task is much harder for offline RL on
+  noisy explore data. Charts were rendered from these partial logs (overwritten by the restarted runs).
+- **Snapshots** (user: "can I view how the RL model is doing at different validation steps?"):
+  - train_bc.py / train_iql.py now save the actor at every validation rollout to
+    `checkpoints/<challenge>/snapshots/<run>/step_XXXXXX.pt` (git-ignored, about 0.6 MB each).
+  - **Viewing only:** the reported model is still the final step, so there is no checkpoint picking.
+  - `view_policy.py --snapshots` lists them as `hard/<run>@<step>`.
+  - The two hard sim IQL runs were stopped at about 60–70k steps and **restarted from scratch with snapshots**
+    (no cost on the critical path: the UMI-dependent runs wait for the recording anyway).
+- **Hard UMI recording:** `record_umi.py --challenge hard --region demo --mode demo --n 500 --start-seed 20000
+  --max-noise 0` → **500 demos, 99.8 % success, 6.67 GB, 3030 s**.
+- **Zarr:** 500 episodes, 109,760 rows, 4.01 GB, 497 s.
+- `umi_to_transitions.py --challenge hard --region demo --replay 500` (544 s): **109,260 transitions, 28.4 MB**.
+  3.3 % of actions clipped (faster swings than easy); 0 outside the workspace.
+  **Open-loop replay: 99.6 % vs 99.8 % recorded, outcome agreement 99.4 %, EE tracking 8.6 mm.**
+- **Started the remaining hard runs** (all with snapshots, `--challenge hard`, chunk 8 / execute 4):
+  - bc_umi_h8 (BC on UMI demos);
+  - iql_umi_sim_b3 / _b10 (UMI + sim, rewards relabelled to the UMI subset);
+  - bc_umi_sim_h8 (control: BC on UMI + sim successes).
+  The two iql_sim runs (restarted) continue in parallel.
+- **[DECISION]** No single-step BC on the hard challenge: the easy experiment already settled chunking
+  (23 % vs 80 % test), and the hard runs are slower (longer episodes in validation).
+- `view_policy.py`: wider model box (72 chars), readout and table column (user request), so snapshot paths
+  fit.
+
+### Hard challenge: reward change (success × 10)
+- **User observation:** the hard IQL snapshots seem to keep holding the panel close to the goal instead of
+  releasing it.
+- **Measured** (20 validation episodes, step-140k snapshots of iql_sim_b3 / b10): success 20 % / 20 %;
+  **held_at_end 9 / 10** was the dominant failure.
+  - Only about 3 of the 19 held episodes are actually near the goal (19–36 mm).
+  - Most hold the panel pressed against the wall in the wrong place (wall gap ≈ 0, 100–550 mm in-plane),
+    or still in the air.
+- **Why the reward invites this:** with success +100, the discounted success from about 150 steps out is
+  100 · 0.99^150 ≈ 22, worth only about 70 steps of 0.3 m position error. Releasing in the data is risky
+  (drop −50, off-wall release = 0) while holding is safe, so the critic prefers holding.
+- **[DECISION]** (user edited env.py, then approved the plan):
+  - **Hard success weight 1000** via `EnvConfig.hard_success_weight`. **Easy stays at 100** (applied in
+    `__post_init__` only for `challenge="hard"`), so the easy results stay reproducible. User's original
+    edit (global 1000) adjusted to this.
+  - The stored rewards are baked in at data generation, so **the hard data was relabelled by regenerating**:
+    - `generate_offline_data.py --challenge hard` (452 s; same trajectories, 63.85 % success,
+      success term max 1000, 1277 successes);
+    - `umi_to_transitions.py --challenge hard` without replay (6 s; 499 successes at 1000).
+  - **Stopped** iql_umi_sim_b3 / b10 (minutes in, old labels) and deleted their partial outputs.
+  - **Kept** the two original iql_sim_b3 / b10 runs (success 100) running; they are renamed to `*_s100`
+    when they finish = the reward ablation.
+  - **Started** iql_sim_b3_s1000, iql_sim_b10_s1000, iql_umi_sim_b3_s1000, iql_umi_sim_b10_s1000. BC runs
+    (bc_umi_h8, bc_umi_sim_h8) are unaffected (BC ignores rewards).
+  - Expectation: this targets "near the goal but won't release"; it doesn't directly fix "pressed against
+    the wall in the wrong place".
+
+### Hard challenge: first results
+- iql_sim_b3 / b10 (success 100), now renamed `*_s100`: final validation 4 % (b10, collisions 70 %). b3: see
+  runs/hard_challenge/iql_sim_b3_s100.txt.
+- bc_umi_h8 (demos from the demo region only): validation (full distribution) 0–2 %, collisions 70–78 %.
+  bc_umi_sim_h8 (control, full coverage): 22–28 %. Coverage effect visible already in validation.
+- **Test results** (100 episodes each; in = 30000–30099 region demo, ood = 31000–31099 region ood):
+  - scripted (demo mode): **in 99 % (95–100), ood 92 % (85–96)**.
+  - bc_umi_sim_h8: **in 55 % (45–64), ood 20 % (13–29)**; failures dominated by **held_at_end (36 / 46)**.
+- **Finding:** BC (no reward at all) shows the same "held at end" failure, so for BC it can't be reward
+  hacking: the policy fails to make the release decision (imitation / timing). The IQL holding failure is
+  therefore probably partly this too; the success 100 vs 1000 ablation measures how much the reward
+  explains.
+- **bc_umi_h8 test:** in 6 % (3–12; dropped 50, never grasped 17, held 14; collisions 84 %), ood 0 %
+  (0–4; never grasped 91).
+  - The ood 0 % is expected (no demo coverage). In-region 6 % was suspicious, so I traced seeds
+    30000–30002: **premature mid-air release** (30002: suction off 222 mm from the target → drop),
+    **suction flicker** at the target (30001: off / on / off within 3 steps at 7–22 mm), stalls with
+    collisions (30000).
+  - With 449 demos over widely varying wall / rack layouts, BC learns the motion but the suction on/off
+    decision generalizes poorly (cf. the easy task's rising held-out attach BCE).
+- iql_sim_b3_s100 in 21 % (held 53), iql_sim_b10_s100 in 2 % (held 71).
+- **Idea for the user (not implemented, it's a new feature):** a rule-based **release gate** around any
+  learned policy: suction off only when the panel estimate is within a few mm of the target and against the
+  wall; suction on only near the panel. That is the Part D hybrid recommendation, testable as an extra eval
+  row without retraining.
+
+### Hard challenge: final results (100 test episodes per cell; in = 30000–30099 region demo, out = 31000–31099 region ood)
+| policy | data | in | out | collisions in/out |
+|---|---|---|---|---|
+| scripted demo | — | 99 % (95–100) | 92 % (85–96) | 0 / 6 % |
+| bc_umi_h8 | UMI demo region | 6 % (3–12) | 0 % (0–4) | 84 / 65 % |
+| bc_umi_sim_h8 | UMI + sim successes | 55 % (45–64) | 20 % (13–29) | 19 / 34 % |
+| iql_sim_b3_s100 | sim | 21 % (14–30) | 11 % (6–19) | 56 / 52 % |
+| iql_sim_b10_s100 | sim | 2 % (1–7) | 10 % (6–17) | 70 / 63 % |
+| iql_sim_b3_s1000 | sim | 8 % (4–15) | 14 % (9–22) | 59 / 57 % |
+| iql_sim_b10_s1000 | sim | 16 % (10–24) | 19 % (13–28) | 51 / 44 % |
+| iql_umi_sim_b3_s1000 | UMI + sim | 19 % (13–28) | 16 % (10–24) | 49 / 53 % |
+| iql_umi_sim_b10_s1000 | UMI + sim | 39 % (30–49) | 22 % (15–31) | 36 / 36 % |
+
+- **Findings (README "Hard challenge"):**
+  1. Demos alone 0 % outside their region (never grasped 91); sim data gives coverage.
+  2. 449 demos aren't enough even in-region (6 %): suction decisions generalize poorly (50 drops, flicker).
+  3. IQL ≤ BC control on the same data (39 vs 55 % in, 22 vs 20 % out); UMI + sim > sim only for IQL.
+  4. Held at end dominates every learned policy, BC included (so not only reward hacking). Reward ×10 helped
+     β10 (2 → 16 % in, CIs disjoint) but not β3 (21 → 8 %).
+  5. IQL collides more.
+  6. Scripted 99 / 92 % → the Part D hybrid recommendation.
+- **Charts:** comparison_in.png / comparison_ood.png (comparison chart fixed: rotated labels, legend below,
+  test-set name in the title, time-out note; easy comparison re-rendered with the same layout),
+  training_*.png for all 8 hard runs.
+- Chart footer fixed: it said "seeds 5000-5049" for hard runs; now it reads the seeds from the log.
+- The value curves show the same overshoot and drift as easy (e.g. umi+sim β10: peak ≈ 24 at 50k, ≈ 19 at
+  200k), so the critics have not converged.
+- README: hard-challenge section, updated headline, viewer docs (`--challenge hard --snapshots`).

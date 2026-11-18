@@ -1,7 +1,7 @@
 """Interactive policy viewer: run the final models (scripted, BC, IQL) one episode at a time or as a
 batch of consecutive test seeds, in the MuJoCo 3D viewer with a Tk control panel.
 
-    python scripts/view_policy.py                  # models = scripted + checkpoints/*.pt
+    python scripts/view_policy.py                  # models = scripted + checkpoints/**/*.pt
     python scripts/view_policy.py --seed 10000
 
 Single test: choose a model and a seed, then Play / Step / Reset (live readout as in
@@ -29,29 +29,36 @@ import mujoco.viewer
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv  # noqa: E402
+from drywall_env import DrywallPlacementEnv, EnvConfig  # noqa: E402
+from drywall_env.scripted_hard import make_scripted  # noqa: E402
 from drywall_env.evaluation import summarize  # noqa: E402
 from drywall_env.policies import ScriptedPolicy, load_policy  # noqa: E402
-from drywall_env.transitions import TEST_SEEDS  # noqa: E402
+from drywall_env.transitions import HARD_TEST_IN_SEEDS, HARD_TEST_OOD_SEEDS, TEST_SEEDS  # noqa: E402
+
+REGIONS = ["demo", "ood", "full"]  # hard challenge layout regions (demo = the UMI demos' coverage)
 
 CONTROL_HZ = 10.0
 IDLE_MS = 50
 FAST_STEPS_PER_TICK = 25
 READOUTS = ["model", "seed", "step", "phase", "pos error (mm)", "ori error (deg)", "attached",
             "fixture_active", "collision", "last reward", "status"]
-COLUMNS = [("seed", 60), ("model", 120), ("result", 80), ("pos mm", 70), ("ori deg", 65),
+COLUMNS = [("seed", 60), ("model", 240), ("result", 80), ("pos mm", 70), ("ori deg", 65),
            ("collision", 70), ("steps", 50)]
 
 
-def find_models(ckpt_dir="checkpoints") -> list[str]:
-    paths = sorted(p for p in Path(ckpt_dir).glob("*.pt") if not p.name.endswith(".critics.pt"))
+def find_models(ckpt_dir="checkpoints", challenge: str | None = None, snapshots: bool = False) -> list[str]:
+    """Final checkpoints of a challenge; with snapshots=True also every validation-step snapshot."""
+    root = Path(ckpt_dir) / f"{challenge}_challenge" if challenge else Path(ckpt_dir)
+    paths = sorted(p for p in root.rglob("*.pt") if not p.name.endswith(".critics.pt")
+                   and (snapshots or "snapshots" not in p.parts))
     return ["scripted"] + [str(p) for p in paths]
 
 
 class App:
-    def __init__(self, root: tk.Tk, seed: int, models: list[str]):
+    def __init__(self, root: tk.Tk, seed: int, models: list[str], challenge: str = "easy"):
         self.root = root
-        self.env = DrywallPlacementEnv()
+        self.challenge = challenge
+        self.env = DrywallPlacementEnv(EnvConfig(challenge=challenge, region="demo" if challenge == "hard" else "full"))
         self.models = models
         self._policies: dict[str, object] = {}
         self.viewer = mujoco.viewer.launch_passive(self.env.model, self.env.data)
@@ -68,12 +75,25 @@ class App:
     # ------------------------------------------------------------------ policies
     def policy(self, spec: str):
         if spec not in self._policies:
-            self._policies[spec] = ScriptedPolicy(self.env.cfg) if spec == "scripted" else load_policy(spec)
+            if spec == "scripted":
+                pol = ScriptedPolicy(self.env.cfg)
+                if self.challenge == "hard":  # demo-mode hard controller
+                    pol.ctrl = make_scripted(self.env.cfg, mode="demo", seed=0)
+                self._policies[spec] = pol
+            else:
+                self._policies[spec] = load_policy(spec)
         return self._policies[spec]
 
     @staticmethod
     def short(spec: str) -> str:
-        return spec if spec == "scripted" else Path(spec).stem
+        if spec == "scripted":
+            return spec
+        p = Path(spec)
+        if "snapshots" in p.parts:  # checkpoints/<c>_challenge/snapshots/<run>/step_000123.pt
+            tag = p.parents[2].name.replace("_challenge", "")
+            return f"{tag}/{p.parent.name}@{p.stem.replace('step_', '')}"
+        tag = p.parent.name.replace("_challenge", "")  # easy / hard
+        return f"{tag}/{p.stem}" if tag and tag != "checkpoints" else p.stem
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self, seed):
@@ -83,11 +103,20 @@ class App:
         top.pack(fill="x", padx=8, pady=4)
         tk.Label(top, text="model").pack(side="left")
         self.model_var = tk.StringVar(value=self.models[-1] if len(self.models) > 1 else self.models[0])
-        ttk.Combobox(top, textvariable=self.model_var, values=self.models, width=34,
+        ttk.Combobox(top, textvariable=self.model_var, values=self.models, width=72,
                      state="readonly").pack(side="left", padx=4)
         tk.Label(top, text="seed").pack(side="left", padx=(8, 2))
         self.seed_var = tk.StringVar(value=str(seed))
         tk.Entry(top, textvariable=self.seed_var, width=7).pack(side="left")
+        self.region_var = tk.StringVar(value="demo")
+        if self.challenge == "hard":
+            tk.Label(top, text="region").pack(side="left", padx=(8, 2))
+            cb = ttk.Combobox(top, textvariable=self.region_var, values=REGIONS, width=6, state="readonly")
+            cb.pack(side="left")
+            # switching region also jumps to that region's test seeds
+            cb.bind("<<ComboboxSelected>>", lambda _e: self.seed_var.set(str(
+                {"demo": HARD_TEST_IN_SEEDS[0], "ood": HARD_TEST_OOD_SEEDS[0]}.get(self.region_var.get(),
+                                                                                   self.seed_var.get()))))
 
         bar = tk.Frame(r)
         bar.pack(fill="x", padx=8, pady=2)
@@ -114,7 +143,7 @@ class App:
         for i, name in enumerate(READOUTS):
             tk.Label(grid, text=name, anchor="w").grid(row=i % 6, column=2 * (i // 6), sticky="w", padx=(0, 6))
             self.readout[name] = tk.StringVar()
-            tk.Label(grid, textvariable=self.readout[name], anchor="w", width=18,
+            tk.Label(grid, textvariable=self.readout[name], anchor="w", width=30,
                      font=("Courier", 10)).grid(row=i % 6, column=2 * (i // 6) + 1, sticky="w")
 
         self.summary_var = tk.StringVar(value="no finished episodes yet")
@@ -166,6 +195,8 @@ class App:
     # ------------------------------------------------------------------ episode control
     def _start_episode(self, model: str, seed: int):
         self.cur_model, self.cur_seed = model, seed
+        if self.challenge == "hard":
+            self.env.cfg.region = self.region_var.get()  # layout sampling region for this reset
         self.pol = self.policy(model)
         with self.viewer.lock():
             self.obs, _ = self.env.reset(seed=seed)
@@ -300,12 +331,17 @@ class App:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seed", type=int, default=TEST_SEEDS[0])
-    ap.add_argument("--models", nargs="*", default=None, help="default: scripted + checkpoints/*.pt")
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy")
+    ap.add_argument("--seed", type=int, default=None, help="default: first test seed (10000 easy / 30000 hard)")
+    ap.add_argument("--models", nargs="*", default=None,
+                    help="default: scripted + checkpoints/<challenge>_challenge/**/*.pt")
+    ap.add_argument("--snapshots", action="store_true",
+                    help="also list the actor saved at every validation step (viewing only)")
     args = ap.parse_args()
-    models = args.models or find_models()
+    models = args.models or find_models(challenge=args.challenge, snapshots=args.snapshots)
+    seed = args.seed if args.seed is not None else (HARD_TEST_IN_SEEDS[0] if args.challenge == "hard" else TEST_SEEDS[0])
     root = tk.Tk()
-    App(root, args.seed, models)
+    App(root, seed, models, args.challenge)
     root.mainloop()
 
 

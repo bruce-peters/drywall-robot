@@ -1,0 +1,32 @@
+IQL on 649725 transitions / 2000 episodes from ['data\\hard\\offline_sim_hard.npz']; reward terms ['pos_error', 'ori_error', 'collision', 'contact_force', 'action', 'jerk', 'drop', 'success']; device cuda
+step   10000  V 0.0754  Q 0.7128  actor 2.170 (nll 0.377)  Q -3.97  V -3.88  A -0.088±0.412  w 5.11  92 s
+step   20000  V 0.1728  Q 1.6412  actor 2.335 (nll 0.344)  Q -5.93  V -5.81  A -0.118±0.624  w 6.80  193 s
+step   20000  VAL ROLLOUTS success 0 %  pos 1140.6 mm  collisions 24 %
+step   30000  V 0.2454  Q 1.8414  actor 2.255 (nll 0.311)  Q -7.15  V -7.01  A -0.137±0.737  w 7.64  415 s
+step   40000  V 0.2968  Q 1.8505  actor 2.315 (nll 0.297)  Q -7.97  V -7.82  A -0.151±0.816  w 8.15  491 s
+step   40000  VAL ROLLOUTS success 0 %  pos 934.4 mm  collisions 36 %
+step   50000  V 0.3196  Q 1.7536  actor 2.175 (nll 0.284)  Q -8.47  V -8.32  A -0.152±0.841  w 8.18  702 s
+step   60000  V 0.4640  Q 2.2640  actor 2.298 (nll 0.265)  Q -9.01  V -8.84  A -0.173±0.976  w 9.18  772 s
+step   60000  VAL ROLLOUTS success 0 %  pos 866.9 mm  collisions 54 %
+step   70000  V 0.3820  Q 1.8955  actor 1.966 (nll 0.265)  Q -9.54  V -9.38  A -0.159±0.901  w 8.44  979 s
+step   80000  V 0.4080  Q 2.0321  actor 2.010 (nll 0.260)  Q -10.04  V -9.88  A -0.163±0.935  w 8.83  1049 s
+step   80000  VAL ROLLOUTS success 2 %  pos 499.4 mm  collisions 76 %
+step   90000  V 0.4459  Q 2.1230  actor 2.035 (nll 0.249)  Q -10.35  V -10.18  A -0.171±0.970  w 9.04  1250 s
+step  100000  V 0.6005  Q 2.5858  actor 2.123 (nll 0.243)  Q -10.69  V -10.50  A -0.186±1.094  w 9.84  1321 s
+step  100000  VAL ROLLOUTS success 4 %  pos 588.4 mm  collisions 56 %
+step  110000  V 0.3900  Q 1.7134  actor 1.883 (nll 0.245)  Q -10.92  V -10.76  A -0.168±0.930  w 9.11  1509 s
+step  120000  V 0.4474  Q 1.8550  actor 1.939 (nll 0.236)  Q -11.04  V -10.86  A -0.176±0.990  w 9.51  1630 s
+step  120000  VAL ROLLOUTS success 2 %  pos 622.2 mm  collisions 66 %
+step  130000  V 0.6206  Q 2.7080  actor 1.988 (nll 0.236)  Q -11.16  V -10.98  A -0.185±1.070  w 9.78  2078 s
+step  140000  V 0.4198  Q 1.9988  actor 1.907 (nll 0.229)  Q -11.24  V -11.06  A -0.177±0.968  w 9.52  2215 s
+step  140000  VAL ROLLOUTS success 12 %  pos 420.3 mm  collisions 50 %
+step  150000  V 0.4326  Q 1.8118  actor 1.846 (nll 0.228)  Q -11.17  V -10.99  A -0.178±0.986  w 9.64  2533 s
+step  160000  V 0.4746  Q 1.8436  actor 1.916 (nll 0.230)  Q -11.27  V -11.09  A -0.179±0.999  w 9.70  2740 s
+step  160000  VAL ROLLOUTS success 10 %  pos 402.9 mm  collisions 58 %
+step  170000  V 0.4771  Q 1.7852  actor 2.019 (nll 0.224)  Q -11.47  V -11.29  A -0.187±1.012  w 10.31  3313 s
+step  180000  V 0.7240  Q 2.1185  actor 1.957 (nll 0.222)  Q -11.56  V -11.36  A -0.194±1.106  w 10.23  3617 s
+step  180000  VAL ROLLOUTS success 6 %  pos 458.3 mm  collisions 62 %
+step  190000  V 0.3922  Q 1.4927  actor 1.839 (nll 0.225)  Q -11.61  V -11.43  A -0.173±0.942  w 9.61  4261 s
+step  200000  V 0.5220  Q 1.7923  actor 1.941 (nll 0.222)  Q -11.72  V -11.53  A -0.182±1.020  w 9.92  4445 s
+step  200000  VAL ROLLOUTS success 4 %  pos 362.6 mm  collisions 70 %
+saved checkpoints\hard_challenge\iql_sim_b10.pt  (4624 s)

@@ -19,39 +19,33 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv  # noqa: E402
+from drywall_env import DrywallPlacementEnv, EnvConfig  # noqa: E402
 from drywall_env.evaluation import evaluate, run_episode  # noqa: E402
 from drywall_env.policies import ScriptedPolicy, load_policy  # noqa: E402
-from drywall_env.transitions import TEST_SEEDS  # noqa: E402
+from drywall_env.video import label_frame  # noqa: E402
+from drywall_env.scripted_hard import make_scripted  # noqa: E402
+from drywall_env.transitions import HARD_TEST_IN_SEEDS, HARD_TEST_OOD_SEEDS, TEST_SEEDS  # noqa: E402
+
+# hard challenge test sets: (seeds, env region)
+HARD_TESTS = {"in": (HARD_TEST_IN_SEEDS, "demo"), "ood": (HARD_TEST_OOD_SEEDS, "ood")}
 
 LABELS = {"scripted": "Scripted controller (no learning)"}
 
 
 def make_policy(spec: str, cfg):
     if spec == "scripted":
+        if cfg.challenge == "hard":  # the demo-mode controller (deterministic per seed)
+            pol = ScriptedPolicy(cfg)
+            pol.ctrl, pol.name = make_scripted(cfg, mode="demo", seed=0), "scripted"
+            return pol
         return ScriptedPolicy(cfg)
     return load_policy(spec)
 
 
-def label_frame(frame: np.ndarray, text: str, color) -> np.ndarray:
-    from PIL import Image, ImageDraw, ImageFont
-
-    img = Image.fromarray(frame)
-    d = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 22)
-    except OSError:
-        font = ImageFont.load_default()
-    x0, y0, x1, y1 = d.textbbox((12, 10), text, font=font)
-    d.rectangle((x0 - 6, y0 - 4, x1 + 6, y1 + 4), fill=(0, 0, 0))
-    d.text((12, 10), text, fill=color, font=font)
-    return np.asarray(img)
-
-
-def save_video(policy, seed: int, path: str, name: str):
+def save_video(policy, seed: int, path: str, name: str, cfg=None):
     import imageio.v2 as imageio
 
-    env = DrywallPlacementEnv(render_mode="rgb_array")
+    env = DrywallPlacementEnv(cfg, render_mode="rgb_array")
     frames, state = [], {}
 
     def on_step(obs, a, info):
@@ -63,7 +57,8 @@ def save_video(policy, seed: int, path: str, name: str):
     row = run_episode(env, policy, seed, on_step=on_step)
     outcome = "SUCCESS" if row["success"] else ("DROPPED" if row["dropped"] else "FAILED (time limit)")
     color = (90, 230, 90) if row["success"] else (255, 110, 90)
-    text = f"{name} | test seed {seed} | {outcome} | pos err {row['pos_error_mm']:.0f} mm"
+    tag = "" if env.cfg.challenge == "easy" else f"hard/{env.cfg.region} "
+    text = f"{name} | {tag}test seed {seed} | {outcome} | pos err {row['pos_error_mm']:.0f} mm"
     frames = [label_frame(f, text, color) for f in frames]
     fps = env.metadata["render_fps"]
     frames += [frames[-1]] * fps
@@ -75,26 +70,37 @@ def save_video(policy, seed: int, path: str, name: str):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy", nargs="+", required=True, help="'scripted' or checkpoint paths")
-    ap.add_argument("--n", type=int, default=len(TEST_SEEDS), help="number of test seeds (from 10000)")
+    ap.add_argument("--n", type=int, default=100, help="number of test seeds (from the start of the test set)")
     ap.add_argument("--video", default=None, help="prefix for success / failure videos (single policy)")
     ap.add_argument("--name", default=None, help="display name in the video label")
     ap.add_argument("--failure-kind", default=None,
                     help="failure video shows the first episode of this mode (e.g. released_off_wall)")
     ap.add_argument("--results-dir", default="results")
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy")
+    ap.add_argument("--test", choices=["in", "ood"], default="in",
+                    help="hard only: in = seeds 30000-30099 inside the demos' region, ood = 31000-31099 outside")
     args = ap.parse_args()
 
-    seeds = list(TEST_SEEDS)[: args.n]
-    env = DrywallPlacementEnv()
+    if args.challenge == "hard":
+        test_seeds, region = HARD_TESTS[args.test]
+        cfg = EnvConfig(challenge="hard", region=region)
+    else:
+        test_seeds, cfg = TEST_SEEDS, EnvConfig()
+    seeds = list(test_seeds)[: args.n]
+    env = DrywallPlacementEnv(cfg)
     table = []
     for spec in args.policy:
         pol = make_policy(spec, env.cfg)
         name = Path(spec).stem if spec != "scripted" else "scripted"
+        if args.challenge == "hard":
+            name = f"{name}_{args.test}"
         t0 = time.time()
         rows, s = evaluate(env, pol, seeds)
         s["seconds"] = time.time() - t0
         Path(args.results_dir).mkdir(exist_ok=True)
         with open(Path(args.results_dir) / f"{name}.json", "w") as f:
-            json.dump({"policy": spec, "seeds": [seeds[0], seeds[-1]], "summary": s, "episodes": rows}, f, indent=1)
+            json.dump({"policy": spec, "challenge": args.challenge, "test": args.test if args.challenge == "hard" else "test",
+                       "seeds": [seeds[0], seeds[-1]], "summary": s, "episodes": rows}, f, indent=1)
         table.append((name, s))
         print(f"{name}: success {100 * s['success_rate']:.1f} % "
               f"(95% CI {100 * s['success_ci95'][0]:.0f}-{100 * s['success_ci95'][1]:.0f}), {s['seconds']:.0f} s",
@@ -105,7 +111,7 @@ def main():
                 pick = [r["seed"] for r in rows if r["success"] == (kind == "success")
                         and (kind == "success" or args.failure_kind in (None, r.get("failure")))]
                 if pick:
-                    save_video(pol, pick[0], f"{args.video}_{kind}.mp4", label)
+                    save_video(pol, pick[0], f"{args.video}_{kind}.mp4", label, cfg)
                     print(f"  saved {args.video}_{kind}.mp4 (seed {pick[0]})")
     env.close()
 

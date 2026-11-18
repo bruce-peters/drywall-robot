@@ -64,7 +64,7 @@ def cell_calibration(env):
 
 
 def convert_episode(rows: dict, target_pos_w, target_R_w, T_base_world, cfg: EnvConfig,
-                    success: bool, dt: float, lag: int = 0) -> dict:
+                    success: bool, dt: float, lag: int = 0, state_dim: int = 37) -> dict:
     """One episode of UMI rows (world frame) -> states (T+1,37), actions (T,7), reward terms."""
     t = rows["timestamp"].astype(float)
     ee_R_w = rotvec_to_mat_batch(rows["robot0_eef_rot_axis_angle"])
@@ -90,7 +90,7 @@ def convert_episode(rows: dict, target_pos_w, target_R_w, T_base_world, cfg: Env
     ta_p, ta_R = resample_poses(t, ta_p, ta_R, t_new)
     att = resample_hold(t, rows["robot0_gripper_width"].reshape(-1), t_new)
 
-    states = build_state(ee_p, ee_R, att, pa_p, pa_R, ta_p, ta_R)
+    states = build_state(ee_p, ee_R, att, pa_p, pa_R, ta_p, ta_R, state_dim=state_dim)
     # 3) + 4) actions from consecutive poses, gripper mapping
     actions, raw_max = actions_from_poses(ee_p, ee_R, att, cfg, lag=lag)
     # 5) workspace check

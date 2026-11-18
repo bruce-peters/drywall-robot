@@ -5,7 +5,7 @@
     python scripts/plot_training.py --compare results/*.json    # -> media/comparison.png
 
 Each run directory holds log.jsonl written by train_bc.py / train_iql.py. The run type is read
-from the log. Validation-rollout points are measured on seeds 5000-5049 (never trained on, never
+from the log. Validation-rollout points are measured on the validation seeds (5000-5049 easy, 25000-25049 hard; never trained on, never
 used to pick a checkpoint); the comparison chart uses the held-out test seeds 10000-10099.
 """
 
@@ -25,6 +25,12 @@ plt.rcParams.update({"figure.dpi": 110, "axes.grid": True, "grid.alpha": 0.3, "a
                      "axes.spines.right": False, "font.size": 9})
 C = {"blue": "#2b6cb0", "orange": "#dd6b20", "green": "#2f855a", "red": "#c53030", "grey": "#718096",
      "purple": "#6b46c1"}
+
+
+def val_seed_text(L) -> str:
+    v = L.get("val_rollout", [])
+    lo, hi = (v[0].get("seeds") if v and v[0].get("seeds") else [5000, 5049])
+    return f"seeds {lo}-{hi}"
 
 
 def kfmt(fig):
@@ -56,7 +62,8 @@ def plot_val_rollouts(ax, L):
         ax.text(0.5, 0.5, "no validation rollouts", ha="center", transform=ax.transAxes)
         return
     n = int(v[0]["n"])
-    title = f"Validation rollouts ({n} episodes, seeds 5000-{5000 + n - 1})"
+    lo, hi = v[0].get("seeds", [5000, 5000 + n - 1])
+    title = f"Validation rollouts ({n} episodes, seeds {lo}-{hi})"
     st = np.array([r["step"] for r in v])
     sr = 100 * np.array([r["success_rate"] for r in v])
     lo = 100 * np.array([r["success_ci95"][0] for r in v])
@@ -164,7 +171,7 @@ def plot_iql(L, name, out):
     data = ", ".join(Path(p).name for p in cfg["data"])
     fig.suptitle(f"{name}: IQL on {int(cfg['n_transitions'])} transitions ({data}); reward terms: "
                  f"{', '.join(cfg['reward_terms_included'])}", fontsize=11)
-    fig.text(0.01, 0.005, "Training uses only the fixed dataset. Validation rollouts (seeds 5000-5049) are measurement "
+    fig.text(0.01, 0.005, f"Training uses only the fixed dataset. Validation rollouts ({val_seed_text(L)}) are measurement "
              "only: not added to the data, not used for gradients or checkpoint choice. Equations: Kostrikov et al. "
              "2021, arXiv:2110.06169.", fontsize=7, color=C["grey"])
     kfmt(fig)
@@ -175,9 +182,9 @@ def plot_iql(L, name, out):
 
 def plot_compare(paths, out):
     res = [json.load(open(p)) for p in paths]
-    names = [Path(p).stem for p in paths]
+    names = [Path(p).stem.removesuffix("_in").removesuffix("_ood") for p in paths]
     S = [r["summary"] for r in res]
-    fig, axes = plt.subplots(1, 5, figsize=(19, 4.6))
+    fig, axes = plt.subplots(1, 5, figsize=(20, 6.2))
     x = np.arange(len(names))
     sr = np.array([100 * s["success_rate"] for s in S])
     lo = np.clip(sr - np.array([100 * s["success_ci95"][0] for s in S]), 0, None)
@@ -196,7 +203,7 @@ def plot_compare(paths, out):
     axes[2].bar(x, [100 * s["collision_rate"] for s in S], color=C["red"])
     axes[2].set_title("Collision rate (% episodes)")
     axes[3].bar(x, [s["length_mean"] for s in S], color=C["blue"])
-    axes[3].set_title("Mean episode length (steps, 300 = time-out)")
+    axes[3].set_title("Mean episode length (steps; time-out 300 easy / 500 hard)")
     kinds = [("never_grasped", C["grey"]), ("held_at_end", C["purple"]), ("released_off_wall", C["orange"]),
              ("released_misaligned", "#d69e2e"), ("dropped", C["red"]), ("other", "#a0aec0")]
     bottom = np.zeros(len(S))
@@ -206,12 +213,15 @@ def plot_compare(paths, out):
             axes[4].bar(x, v, bottom=bottom, color=col, label=k.replace("_", " "))
             bottom += v
     axes[4].set_title("Failure modes (episodes)")
-    axes[4].legend(fontsize=7)
+    axes[4].legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.42), ncol=2, frameon=False)
     for a in axes:
         a.set_xticks(x)
-        a.set_xticklabels(names, rotation=20, ha="right")
-    fig.suptitle(f"Policy comparison on held-out test seeds {res[0]['seeds'][0]}-{res[0]['seeds'][1]} "
-                 f"({S[0]['n']} episodes each)", fontsize=11)
+        a.set_xticklabels(names, rotation=40, ha="right", fontsize=7)
+    ranges = sorted({f"{r['seeds'][0]}-{r['seeds'][1]}" for r in res})
+    which = {"in": "hard challenge, IN the demos' region", "ood": "hard challenge, OUTSIDE the demos' region",
+             "test": "easy challenge"}.get(res[0].get("test", "test"), "")
+    fig.suptitle(f"Policy comparison on held-out test seeds {', '.join(ranges)} ({which}; {S[0]['n']} episodes each)",
+                 fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(out)
     plt.close(fig)
@@ -222,6 +232,7 @@ def main():
     ap.add_argument("runs", nargs="*")
     ap.add_argument("--compare", nargs="*", default=None)
     ap.add_argument("--out-dir", default="media")
+    ap.add_argument("--compare-name", default="comparison", help="file name of the comparison chart")
     args = ap.parse_args()
     Path(args.out_dir).mkdir(exist_ok=True)
     for run in args.runs:
@@ -231,7 +242,7 @@ def main():
         (plot_iql if "q_loss" in L["train"][0] else plot_bc)(L, name, out)
         print("wrote", out)
     if args.compare:
-        out = Path(args.out_dir) / "comparison.png"
+        out = Path(args.out_dir) / f"{args.compare_name}.png"
         plot_compare(args.compare, out)
         print("wrote", out)
 

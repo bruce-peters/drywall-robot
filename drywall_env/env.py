@@ -29,15 +29,47 @@ PANEL_HALF = np.array([0.3, 0.2, 0.005])
 
 @dataclass
 class EnvConfig:
+    # Which task: "easy" = Parts A-C (fixed wall in front, rack at (0.35, -0.5), small offsets).
+    # "hard" = wall AND rack placed anywhere around the robot every episode (see the hard_* fields;
+    # ranges from the IK reachability sweep, LABNOTEBOOK 2026-11-18).
+    challenge: str = "easy"
+    # hard only: "full" (whole distribution), "demo" (the limited region the UMI demos cover) or
+    # "ood" (full distribution minus the demo region)
+    region: str = "full"
     # Timing
     substeps: int = 60  # physics dt 1/600 s (scene.xml) -> 10 Hz control; 60 Hz = every 10 substeps
-    max_steps: int = 300
+    max_steps: int | None = None  # None -> 300 (easy) / 500 (hard: long swings around the base)
     # Action scaling (per control step, robot base frame)
     max_pos_step: float = 0.02  # m
     max_rot_step: float = np.radians(3.0)  # rad, per roll/pitch/yaw component
     # Commanded EE position is clipped to this box (base frame), around reachable space.
-    workspace_low: tuple = (0.10, -0.75, 0.15)
-    workspace_high: tuple = (0.80, 0.60, 1.00)
+    # None -> easy: (0.10, -0.75, 0.15)-(0.80, 0.60, 1.00); hard: +-0.85 m in x and y.
+    workspace_low: tuple | None = None
+    workspace_high: tuple | None = None
+    # Hard challenge (angles in rad, about the robot's base z axis; 0 = the easy wall direction)
+    hard_wall_angle: tuple = (np.radians(-150.0), np.radians(150.0))  # joint1 is +-166 deg
+    hard_demo_wall_angle: tuple = (np.radians(-45.0), np.radians(45.0))
+    hard_rack_radius: tuple = (0.60, 0.70)  # m; closer racks behind the robot are unreachable
+    hard_rack_gap: tuple = (np.radians(60.0), np.radians(150.0))  # |rack angle - wall angle|
+    hard_demo_rack_gap: tuple = (np.radians(-120.0), np.radians(-60.0))  # demo: rack on the wall's right
+    hard_rack_angle_limit: float = np.radians(160.0)  # |rack angle| (joint1 limit)
+    # panel yaw relative to the rack's radial direction; +15..+75 deg is a wrist-limit band (sweep)
+    hard_panel_rel_yaw: tuple = (np.radians(-135.0), np.radians(-15.0))
+    hard_target_dy: tuple = (-0.20, 0.20)  # m along the wall
+    hard_target_z: tuple = (0.55, 0.75)  # m, target centre height (wall-facing reach band)
+
+    def __post_init__(self):
+        hard = self.challenge == "hard"
+        if self.challenge not in ("easy", "hard") or self.region not in ("full", "demo", "ood"):
+            raise ValueError(f"bad challenge/region {self.challenge}/{self.region}")
+        if self.max_steps is None:
+            self.max_steps = 500 if hard else 300
+        if self.workspace_low is None:
+            self.workspace_low = (-0.85, -0.85, 0.15) if hard else (0.10, -0.75, 0.15)
+        if self.workspace_high is None:
+            self.workspace_high = (0.85, 0.85, 1.00) if hard else (0.80, 0.60, 1.00)
+        if hard:
+            self.reward_weights = {**self.reward_weights, "success": self.hard_success_weight}
     # Suction attachment: plate face within attach_dist of the panel face, plate centre over
     # the panel, plate normal within attach_max_angle of the panel normal.
     attach_dist: float = 0.03
@@ -75,9 +107,13 @@ class EnvConfig:
             "action": 0.01,  # per ||a||^2 (motion dims)
             "jerk": 0.01,  # per ||a - a_prev||^2 (motion dims)
             "drop": 50.0,
-            "success": 100.0,
+            "success": 100.0,  # easy challenge (Parts B/C as reported); hard: hard_success_weight
         }
     )
+    # Hard challenge success weight (user, 2026-11-18): x10. With +100 the discounted success
+    # (~100 * 0.99^150 = 22) was worth only ~70 steps of 0.3 m error, and IQL learned to keep holding
+    # the panel instead of releasing it (held_at_end = 9-10 of 20 validation episodes).
+    hard_success_weight: float = 1000.0
 
 
 class DrywallPlacementEnv(gym.Env):
@@ -126,6 +162,12 @@ class DrywallPlacementEnv(gym.Env):
 
         # --- nominal values (restored at every reset so randomization never accumulates)
         self._nom_target_pos = m.body_pos[self._target_body].copy()
+        self._nom_target_quat = m.body_quat[self._target_body].copy()
+        self._rack_body = m.body("rack").id
+        self._nom_wall_pos = m.body_pos[self._wall_body].copy()
+        self._nom_wall_quat = m.body_quat[self._wall_body].copy()
+        self._nom_rack_pos = m.body_pos[self._rack_body].copy()
+        self._nom_rack_quat = m.body_quat[self._rack_body].copy()
         self._nom_panel_mass = float(m.body_mass[self._panel_body])
         self._nom_panel_inertia = m.body_inertia[self._panel_body].copy()
         self._nom_panel_friction = m.geom_friction[self._panel_geom].copy()
@@ -273,9 +315,16 @@ class DrywallPlacementEnv(gym.Env):
 
         # Restore nominal model parameters, then sample this episode's factors.
         m.body_pos[self._target_body] = self._nom_target_pos
+        m.body_quat[self._target_body] = self._nom_target_quat
+        m.body_pos[self._wall_body] = self._nom_wall_pos
+        m.body_quat[self._wall_body] = self._nom_wall_quat
+        m.body_pos[self._rack_body] = self._nom_rack_pos
+        m.body_quat[self._rack_body] = self._nom_rack_quat
         m.body_mass[self._panel_body] = self._nom_panel_mass
         m.body_inertia[self._panel_body] = self._nom_panel_inertia
         m.geom_friction[self._panel_geom] = self._nom_panel_friction
+        if cfg.challenge == "hard":
+            return self._reset_hard(rng)
         if cfg.randomize:
             r = cfg.panel_pos_range
             rnd = {
@@ -298,12 +347,80 @@ class DrywallPlacementEnv(gym.Env):
         m.body_inertia[self._panel_body] = self._nom_panel_inertia * rnd["panel_mass"] / self._nom_panel_mass
         m.geom_friction[self._panel_geom, 0] = rnd["panel_friction"]
 
-        mujoco.mj_resetData(m, d)
         pq = self._nom_panel_qpos.copy()
         pq[0] += rnd["panel_dx"]
         pq[1] += rnd["panel_dy"]
         pq[3:7] = canonical(quat_mul(rotvec_to_quat([0, 0, rnd["panel_dyaw"]]), pq[3:7]))
-        d.qpos[self._panel_qadr:self._panel_qadr + 7] = pq
+        return self._finish_reset(pq)
+
+    def _sample_hard(self, rng) -> dict:
+        """Wall angle, rack placement and target offset for the hard challenge. Rejection-samples
+        within the configured region; every draw comes from the episode's rng (deterministic)."""
+        cfg = self.cfg
+        u = lambda r: float(rng.uniform(*r))  # noqa: E731
+        lo_d, hi_d = cfg.hard_demo_wall_angle
+        lo_g, hi_g = cfg.hard_demo_rack_gap
+
+        def in_demo(theta, gap):
+            return lo_d <= theta <= hi_d and lo_g <= gap <= hi_g
+
+        for _ in range(1000):
+            if cfg.region == "demo":
+                theta, gap = u(cfg.hard_demo_wall_angle), u(cfg.hard_demo_rack_gap)
+            else:
+                theta = u(cfg.hard_wall_angle)
+                gap = u(cfg.hard_rack_gap) * (1.0 if rng.uniform() < 0.5 else -1.0)
+            phi = theta + gap
+            if abs(phi) > cfg.hard_rack_angle_limit:
+                continue
+            if cfg.region == "ood" and in_demo(theta, gap):
+                continue
+            break
+        else:
+            raise RuntimeError("could not sample a hard-challenge layout")
+        return {"wall_angle": theta, "rack_angle": phi, "rack_radius": u(cfg.hard_rack_radius),
+                "panel_rel_yaw": u(cfg.hard_panel_rel_yaw),
+                "target_dy": u(cfg.hard_target_dy), "target_z": u(cfg.hard_target_z)}
+
+    def _reset_hard(self, rng):
+        """Hard challenge: rotate the wall (with its target and ledge) and place the rack anywhere
+        around the robot. Wall/target poses are the easy ones rotated by the wall angle about the
+        base z axis, so the wall-facing geometry relative to the arm is unchanged."""
+        m, cfg = self.model, self.cfg
+        lay = self._sample_hard(rng)
+        r = cfg.panel_pos_range
+        rnd = {**lay,
+               "panel_dx": float(rng.uniform(-r, r)), "panel_dy": float(rng.uniform(-r, r)),
+               "panel_mass": float(rng.uniform(*cfg.panel_mass_range)),
+               "panel_friction": float(rng.uniform(*cfg.panel_friction_range))}
+        self._rand = rnd
+        qz = rotvec_to_quat([0, 0, lay["wall_angle"]])
+        Rz = quat_to_mat(qz)
+        m.body_pos[self._wall_body] = Rz @ self._nom_wall_pos
+        m.body_quat[self._wall_body] = quat_mul(qz, self._nom_wall_quat)
+        t_local = self._nom_target_pos + [0.0, lay["target_dy"], lay["target_z"] - self._nom_target_pos[2]]
+        m.body_pos[self._target_body] = Rz @ t_local
+        m.body_quat[self._target_body] = quat_mul(qz, self._nom_target_quat)
+        # rack: centre on the ring, x axis radial (long side tangential)
+        phi, rad = lay["rack_angle"], lay["rack_radius"]
+        rack_c = np.array([rad * np.cos(phi), rad * np.sin(phi), self._nom_rack_pos[2]])
+        m.body_pos[self._rack_body] = rack_c
+        m.body_quat[self._rack_body] = rotvec_to_quat([0, 0, phi])
+        m.body_mass[self._panel_body] = rnd["panel_mass"]
+        m.body_inertia[self._panel_body] = self._nom_panel_inertia * rnd["panel_mass"] / self._nom_panel_mass
+        m.geom_friction[self._panel_geom, 0] = rnd["panel_friction"]
+        # panel on the rack: offset in the rack frame, yaw relative to the radial direction
+        Rr = quat_to_mat(rotvec_to_quat([0, 0, phi]))
+        pq = self._nom_panel_qpos.copy()
+        pq[:3] = rack_c + Rr @ np.array([rnd["panel_dx"], rnd["panel_dy"], 0.0])
+        pq[2] = self._nom_panel_qpos[2]
+        pq[3:7] = rotvec_to_quat([0, 0, phi + lay["panel_rel_yaw"]])
+        return self._finish_reset(pq)
+
+    def _finish_reset(self, panel_qpos):
+        m, d = self.model, self.data
+        mujoco.mj_resetData(m, d)
+        d.qpos[self._panel_qadr:self._panel_qadr + 7] = panel_qpos
         d.qpos[self._qadr] = HOME_QPOS
         d.ctrl[self._act] = HOME_QPOS
         d.eq_active[:] = 0
@@ -351,6 +468,13 @@ class DrywallPlacementEnv(gym.Env):
 
         # 3) IK -> joint position targets for the position actuators.
         wp, wq = self._to_world(self._cmd_pos, self._cmd_quat)
+        if cfg.challenge == "hard":
+            # Posture-aware IK: the null-space home posture turns joint1 towards the commanded EE's
+            # azimuth, so the arm keeps the easy task's posture relative to wherever it is working.
+            # With joint1 fixed at 0 the redundancy is resolved by twisting joints 3/5/7 until joint6
+            # hits its limit near walls away from 0 deg (LABNOTEBOOK 2026-11-18). Easy is unchanged.
+            self.ik.q_home[0] = np.clip(np.arctan2(self._cmd_pos[1], self._cmd_pos[0]),
+                                        self.ik.lo[0] + 0.05, self.ik.hi[0] - 0.05)
         self._q_cmd, ik_residual = self.ik.solve(self._q_cmd, wp, wq)
         d.ctrl[self._act] = np.clip(self._q_cmd, self._ctrl_lo, self._ctrl_hi)
 
@@ -508,6 +632,16 @@ class DrywallPlacementEnv(gym.Env):
             side.lookat[:] = [0.45, -0.1, 0.55]
             side.distance, side.azimuth, side.elevation = 1.7, -90.0, -12.0
             self._cams = [overview, side]
+        if self.cfg.challenge == "hard":
+            # high overview of the whole ring (wall at the top of the image), and the easy side view
+            # rotated with the wall so the placement is always seen from the same relative angle
+            th = self._rand["wall_angle"]
+            ov, side = self._cams
+            ov.lookat[:] = [0.0, 0.0, 0.35]
+            ov.distance, ov.azimuth, ov.elevation = 2.9, np.degrees(th), -62.0
+            Rz = quat_to_mat(rotvec_to_quat([0, 0, th]))
+            side.lookat[:] = Rz @ np.array([0.45, -0.1, 0.55])
+            side.distance, side.azimuth, side.elevation = 1.7, -90.0 + np.degrees(th), -12.0
         frames = []
         for cam in self._cams:
             self._renderer.update_scene(self.data, camera=cam)

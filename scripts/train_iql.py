@@ -57,9 +57,10 @@ import torch
 from torch import nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv  # noqa: E402
 from drywall_env.policies import ActorNet, Normalizer, action_chunks, mlp, save_actor  # noqa: E402
-from drywall_env.training_utils import JsonlLogger, set_seed, validation_rollouts  # noqa: E402
+from drywall_env.training_utils import (  # noqa: E402
+    JsonlLogger, default_log_path, make_env, set_seed, snapshot_path, validation_rollouts,
+)
 from drywall_env.transitions import (  # noqa: E402
     REWARD_TERMS, STATE_DIM, UMI_REWARD_TERMS, load_many,
 )
@@ -77,11 +78,11 @@ def expectile_loss(u: torch.Tensor, tau: float) -> torch.Tensor:
 class TwinQ(nn.Module):
     """Two independent Q(s, a) networks (clipped double-Q, Fujimoto et al. 2018)."""
 
-    def __init__(self, norm: Normalizer, hidden):
+    def __init__(self, norm: Normalizer, hidden, state_dim: int = STATE_DIM):
         super().__init__()
         self.norm = norm
-        self.q1 = mlp(STATE_DIM + 7, 1, hidden)
-        self.q2 = mlp(STATE_DIM + 7, 1, hidden)
+        self.q1 = mlp(state_dim + 7, 1, hidden)
+        self.q2 = mlp(state_dim + 7, 1, hidden)
 
     def both(self, s, a):
         x = torch.cat([self.norm(s), a], -1)
@@ -92,10 +93,10 @@ class TwinQ(nn.Module):
 
 
 class ValueNet(nn.Module):
-    def __init__(self, norm: Normalizer, hidden):
+    def __init__(self, norm: Normalizer, hidden, state_dim: int = STATE_DIM):
         super().__init__()
         self.norm = norm
-        self.v = mlp(STATE_DIM, 1, hidden)
+        self.v = mlp(state_dim, 1, hidden)
 
     def forward(self, s):
         return self.v(self.norm(s)).squeeze(-1)
@@ -105,7 +106,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", nargs="+", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--log", default=None, help="default runs/<out stem>/log.jsonl")
+    ap.add_argument("--log", default=None, help="default runs/<checkpoint subfolder>/<out stem>/log.jsonl")
     ap.add_argument("--reward-terms", choices=["stored", "umi", "all"], default="stored",
                     help="stored = as saved in the file; umi = only the terms UMI data supports")
     ap.add_argument("--steps", type=int, default=200_000)
@@ -123,6 +124,8 @@ def main():
     ap.add_argument("--rollout-every", type=int, default=20_000, help="validation rollouts (0 = off)")
     ap.add_argument("--rollout-episodes", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
+                    help="env used for the validation rollouts (hard: seeds 25000-25049, full region)")
     args = ap.parse_args()
 
     set_seed(args.seed)
@@ -138,12 +141,13 @@ def main():
     DONE = T(D["terminals"].astype(np.float32))
 
     # Networks. One state normalizer (fit on the dataset) shared by actor, critics and value.
-    norm = Normalizer(STATE_DIM).fit(D["observations"]).to(dev)
-    actor = ActorNet(hidden=args.hidden, chunk=args.chunk).to(dev)
+    sdim = D["observations"].shape[1]  # 37 (easy, state v1) or 46 (hard, state v2)
+    norm = Normalizer(sdim).fit(D["observations"]).to(dev)
+    actor = ActorNet(state_dim=sdim, hidden=args.hidden, chunk=args.chunk).to(dev)
     actor.norm.load_state_dict(norm.state_dict())
-    qf = TwinQ(norm, args.hidden).to(dev)
+    qf = TwinQ(norm, args.hidden, sdim).to(dev)
     q_target = copy.deepcopy(qf).requires_grad_(False)
-    vf = ValueNet(norm, args.hidden).to(dev)
+    vf = ValueNet(norm, args.hidden, sdim).to(dev)
     # the normalizer is fixed (fit once), so it is excluded from the optimizers
     params = lambda m: [p for n, p in m.named_parameters() if not n.startswith("norm.")]  # noqa: E731
     q_opt = torch.optim.Adam(params(qf), lr=args.lr)
@@ -151,14 +155,14 @@ def main():
     a_opt = torch.optim.Adam(params(actor), lr=args.lr)
     a_sched = torch.optim.lr_scheduler.CosineAnnealingLR(a_opt, args.steps)
 
-    log = JsonlLogger(args.log or f"runs/{Path(args.out).stem}/log.jsonl")
+    log = JsonlLogger(args.log or default_log_path(args.out))
     log.log("config", 0, **vars(args), n_transitions=N, n_episodes=len(D["episode_ends"]),
             reward_terms_included=D["reward_terms_included"] if terms is None else list(terms),
             terminal_frac=float(D["terminals"].mean()), device=dev)
     print(f"IQL on {N} transitions / {len(D['episode_ends'])} episodes from {args.data}; "
           f"reward terms {terms or D['reward_terms_included']}; device {dev}", flush=True)
 
-    env = DrywallPlacementEnv() if args.rollout_every else None
+    env = make_env(args.challenge) if args.rollout_every else None
     acc, t0 = [], time.time()
     for step in range(1, args.steps + 1):
         b = torch.randint(N, (args.batch,), device=dev)
@@ -218,6 +222,8 @@ def main():
         if args.rollout_every and (step % args.rollout_every == 0 or step == args.steps):
             actor.eval()
             sm = validation_rollouts(actor, env, args.rollout_episodes, n_exec=args.n_exec)
+            save_actor(snapshot_path(args.out, step), actor, extra={"algo": "iql", "snapshot_step": step,
+                                                                    "n_exec": args.n_exec or args.chunk})
             actor.train()
             log.log("val_rollout", step, **sm)
             print(f"step {step:7d}  VAL ROLLOUTS success {100 * sm['success_rate']:.0f} %  "

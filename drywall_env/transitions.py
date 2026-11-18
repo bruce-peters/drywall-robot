@@ -44,27 +44,42 @@ STATE_LAYOUT = [
     ("target_pos", 3), ("target_rot6", 6),
     ("panel_in_target_pos", 3), ("panel_in_target_rot6", 6),
 ]
-STATE_DIM = sum(n for _, n in STATE_LAYOUT)  # 37
+STATE_DIM = sum(n for _, n in STATE_LAYOUT)  # 37 (state v1, easy challenge)
+# State v2 (hard challenge): v1 + the panel pose in the EE ("hand") frame. Computed only from the EE
+# pose (forward kinematics / UMI SLAM) and the panel pose ESTIMATE -- both already in v1 -- so it is
+# no new information, just the hand-relative view that generalizes across rack positions.
+STATE_LAYOUT_V2 = STATE_LAYOUT + [("panel_in_ee_pos", 3), ("panel_in_ee_rot6", 6)]
+STATE_DIM_V2 = sum(n for _, n in STATE_LAYOUT_V2)  # 46
+STATE_LAYOUTS = {STATE_DIM: STATE_LAYOUT, STATE_DIM_V2: STATE_LAYOUT_V2}
 ACTION_DIM = 7
 REWARD_TERMS = ("pos_error", "ori_error", "collision", "contact_force", "action", "jerk", "drop", "success")
 # What UMI-style data supports: no force / contact sensing, so no collision, contact_force or drop.
 UMI_REWARD_TERMS = ("pos_error", "ori_error", "action", "jerk", "success")
 
-# Seed allocation (LABNOTEBOOK 2026-11-17). Test seeds are never used for data or training.
+# Seed allocation (LABNOTEBOOK 2026-11-17 / 2026-11-18). Test seeds are never used for data or training.
+# Easy challenge
 TEST_SEEDS = range(10000, 10100)
 VAL_SEEDS = range(5000, 5050)
 OFFLINE_SEEDS = range(1000, 2000)
+# Hard challenge
+HARD_UMI_SEEDS = range(20000, 20500)  # UMI demos, region "demo"
+HARD_OFFLINE_SEEDS = range(21000, 23000)  # sim offline data, region "full"
+HARD_VAL_SEEDS = range(25000, 25050)  # validation rollouts, region "full"
+HARD_TEST_IN_SEEDS = range(30000, 30100)  # test, region "demo" (inside the demos' coverage)
+HARD_TEST_OOD_SEEDS = range(31000, 31100)  # test, region "ood" (outside the demos' coverage)
+ALL_TEST_SEEDS = set(TEST_SEEDS) | set(HARD_TEST_IN_SEEDS) | set(HARD_TEST_OOD_SEEDS)
 
 
 def check_not_test_seeds(seeds) -> None:
-    bad = sorted(set(int(s) for s in seeds) & set(TEST_SEEDS))
+    bad = sorted(set(int(s) for s in seeds) & ALL_TEST_SEEDS)
     if bad:
-        raise ValueError(f"seeds {bad[:5]}... are reserved held-out TEST seeds (10000-10099)")
+        raise ValueError(f"seeds {bad[:5]}... are reserved held-out TEST seeds "
+                         "(10000-10099, 30000-30099, 31000-31099)")
 
 
-def state_slices() -> dict[str, slice]:
+def state_slices(state_dim: int = STATE_DIM) -> dict[str, slice]:
     out, i = {}, 0
-    for name, n in STATE_LAYOUT:
+    for name, n in STATE_LAYOUTS[state_dim]:
         out[name] = slice(i, i + n)
         i += n
     return out
@@ -139,8 +154,10 @@ def rotation_angle_batch(R: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------- state
-def build_state(ee_p, ee_R, attached, panel_p, panel_R, targ_p, targ_R) -> np.ndarray:
-    """All inputs batched ((N,3), (N,3,3), (N,)), base frame -> (N, 37) float32."""
+def build_state(ee_p, ee_R, attached, panel_p, panel_R, targ_p, targ_R,
+                state_dim: int = STATE_DIM) -> np.ndarray:
+    """All inputs batched ((N,3), (N,3,3), (N,)), base frame -> (N, state_dim) float32
+    (37 = v1, 46 = v2 with the panel pose in the EE frame appended)."""
     ee_p, panel_p, targ_p = (np.asarray(x, float).reshape(-1, 3) for x in (ee_p, panel_p, targ_p))
     ee_R, panel_R, targ_R = (np.asarray(x, float).reshape(-1, 3, 3) for x in (ee_R, panel_R, targ_R))
     att = np.asarray(attached, float).reshape(-1, 1)
@@ -148,20 +165,27 @@ def build_state(ee_p, ee_R, attached, panel_p, panel_R, targ_p, targ_R) -> np.nd
     RtT = np.transpose(targ_R, (0, 2, 1))
     rel_p = np.einsum("nij,nj->ni", RtT, panel_p - targ_p)
     rel_R = RtT @ panel_R
-    s = np.concatenate([ee_p, mat_to_rot6(ee_R), att, panel_p, mat_to_rot6(panel_R),
-                        targ_p, mat_to_rot6(targ_R), rel_p, mat_to_rot6(rel_R)], axis=1)
-    assert s.shape[1] == STATE_DIM
+    parts = [ee_p, mat_to_rot6(ee_R), att, panel_p, mat_to_rot6(panel_R),
+             targ_p, mat_to_rot6(targ_R), rel_p, mat_to_rot6(rel_R)]
+    if state_dim == STATE_DIM_V2:
+        # panel pose in the EE frame: p = R_e^T (p_p - p_e), R = R_e^T R_p
+        ReT = np.transpose(ee_R, (0, 2, 1))
+        parts += [np.einsum("nij,nj->ni", ReT, panel_p - ee_p), mat_to_rot6(ReT @ panel_R)]
+    elif state_dim != STATE_DIM:
+        raise ValueError(f"unknown state_dim {state_dim}")
+    s = np.concatenate(parts, axis=1)
+    assert s.shape[1] == state_dim
     return s.astype(np.float32)
 
 
-def state_from_obs(obs) -> np.ndarray:
-    """37-D state from a live env observation, using ONLY the deployable group (the panel and
-    target poses are the estimates, which carry observation noise if it is enabled)."""
+def state_from_obs(obs, state_dim: int = STATE_DIM) -> np.ndarray:
+    """State (37-D v1 or 46-D v2) from a live env observation, using ONLY the deployable group
+    (the panel and target poses are the estimates, which carry observation noise if enabled)."""
     d = obs["deployable"] if "deployable" in obs else obs
     q = np.stack([d["ee_quat"], d["panel_quat_est"], d["target_quat_est"]])
     Rs = quat_to_mat_batch(q)
     return build_state(d["ee_pos"], Rs[0], d["attached"][0], d["panel_pos_est"], Rs[1],
-                       d["target_pos_est"], Rs[2])[0]
+                       d["target_pos_est"], Rs[2], state_dim=state_dim)[0]
 
 
 # ---------------------------------------------------------------- UMI -> robot conversion
@@ -273,7 +297,8 @@ def save_transitions(path, episodes: list[dict], meta: dict) -> dict:
     r = {k: np.concatenate(v) for k, v in rterms.items()}
     included = meta.get("reward_terms_included", list(REWARD_TERMS))
     rewards = sum(r[k] for k in included).astype(np.float32)
-    meta = {**meta, "state_layout": STATE_LAYOUT, "state_dim": STATE_DIM, "action_dim": ACTION_DIM,
+    sdim = int(episodes[0]["observations"].shape[1])
+    meta = {**meta, "state_layout": STATE_LAYOUTS[sdim], "state_dim": sdim, "action_dim": ACTION_DIM,
             "action_layout": ["dx", "dy", "dz", "droll", "dpitch", "dyaw", "attach"],
             "reward_terms_included": list(included)}
     arrays = {

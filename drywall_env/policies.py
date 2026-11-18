@@ -108,14 +108,15 @@ class TorchPolicy:
     @torch.no_grad()
     def predict(self, states: np.ndarray) -> np.ndarray:
         """Batched: (B, 37) -> (B, H, 7) actions."""
-        s = torch.as_tensor(np.asarray(states, np.float32), device=self.device).view(-1, STATE_DIM)
+        s = torch.as_tensor(np.asarray(states, np.float32), device=self.device).view(-1, self.actor.state_dim)
         motion, logit = self.actor(s)
         attach = torch.where(logit > 0, 1.0, -1.0).unsqueeze(-1)
         return torch.cat([motion, attach], -1).cpu().numpy()
 
     def act(self, obs) -> np.ndarray:
         if not self._queue:
-            chunk = self.predict(state_from_obs(obs)[None])[0]
+            # the state version (37-D v1 / 46-D v2) follows the network's input size
+            chunk = self.predict(state_from_obs(obs, self.actor.state_dim)[None])[0]
             self._queue.extend(chunk[: self.n_exec])
         return self._queue.popleft().astype(np.float32)
 

@@ -18,7 +18,8 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from drywall_env import DrywallPlacementEnv  # noqa: E402
+from drywall_env import DrywallPlacementEnv, EnvConfig  # noqa: E402
+from drywall_env.transforms import quat_to_mat  # noqa: E402
 from drywall_env.transitions import UMI_REWARD_TERMS, check_not_test_seeds, save_transitions  # noqa: E402
 from drywall_env.umi_to_robot import (  # noqa: E402
     cell_calibration, convert_episode, load_umi_lowdim, replay_actions,
@@ -33,7 +34,13 @@ def main():
     ap.add_argument("--out", default="data/umi_transitions.npz")
     ap.add_argument("--lag", type=int, default=0, help="latency compensation in control steps")
     ap.add_argument("--replay", type=int, default=0, help="replay the first N episodes open-loop as a check")
+    ap.add_argument("--challenge", choices=["easy", "hard"], default="easy")
+    ap.add_argument("--region", choices=["full", "demo", "ood"], default="demo",
+                    help="hard only: the region the recording used (needed to replay its layouts)")
+    ap.add_argument("--state-dim", type=int, choices=[37, 46], default=None,
+                    help="37 = state v1, 46 = v2 (+ panel in EE frame); default 37 easy / 46 hard")
     args = ap.parse_args()
+    state_dim = args.state_dim or (46 if args.challenge == "hard" else 37)
 
     t0 = time.time()
     U = load_umi_lowdim(args.zarr)
@@ -44,7 +51,7 @@ def main():
     starts = np.concatenate([[0], ends[:-1]])
     assert len(ends) == len(seeds), "zarr and sidecar disagree on the number of episodes"
 
-    env = DrywallPlacementEnv()
+    env = DrywallPlacementEnv(EnvConfig(challenge=args.challenge, region=args.region if args.challenge == "hard" else "full"))
     env.reset(seed=0)
     T_base_world, target_nom, target_R = cell_calibration(env)
 
@@ -52,9 +59,13 @@ def main():
     for i in range(len(ends)):
         sl = slice(starts[i], ends[i])
         rows = {k: U[k][sl] for k in U if k not in ("episode_ends", "episode_success")}
-        target_pos = target_nom + np.array([0.0, side["target_dy"][i], side["target_dz"][i]])
-        ep = convert_episode(rows, target_pos, target_R, T_base_world, env.cfg,
-                             bool(U["episode_success"][i]), env.dt, lag=args.lag)
+        if "target_pos_w" in side.files:  # recorder stored the full (perceived) target pose
+            target_pos, target_Ri = side["target_pos_w"][i], quat_to_mat(side["target_quat_w"][i])
+        else:  # older easy recordings: nominal target + its offsets
+            target_pos = target_nom + np.array([0.0, side["target_dy"][i], side["target_dz"][i]])
+            target_Ri = target_R
+        ep = convert_episode(rows, target_pos, target_Ri, T_base_world, env.cfg,
+                             bool(U["episode_success"][i]), env.dt, lag=args.lag, state_dim=state_dim)
         ep["seed"] = int(seeds[i])
         n_clip += ep["n_clipped"]
         n_out += ep["n_outside_workspace"]
@@ -85,7 +96,7 @@ def main():
             "mean_ee_tracking_error_mm": float(1000 * np.nanmean([r["ee_track_err"] for r in rep])),
         }
 
-    meta = {"source": str(args.zarr), "sidecar": str(args.sidecar), "dt": env.dt,
+    meta = {"source": str(args.zarr), "sidecar": str(args.sidecar), "dt": env.dt, "challenge": args.challenge,
             "reward_terms_included": list(UMI_REWARD_TERMS),
             "notes": "UMI-style demos -> robot actions; target pose from sidecar (perception stand-in); "
                      "collision/contact_force/drop are 0 (not observable in UMI data)",
