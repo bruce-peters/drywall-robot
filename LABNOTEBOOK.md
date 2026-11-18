@@ -956,3 +956,29 @@ seed 0 still succeeds at step 175, 3.05 mm, return −27.86; env tests pass)
 - The value curves show the same overshoot and drift as easy (e.g. umi+sim β10: peak ≈ 24 at 50k, ≈ 19 at
   200k), so the critics have not converged.
 - README: hard-challenge section, updated headline, viewer docs (`--challenge hard --snapshots`).
+- **Found while committing: `MUJOCO_LOG.TXT`, 13 MuJoCo "simulation is unstable" warnings** (NaN / Inf /
+  huge QVEL or QACC at DOFs 0–2), 2026-11-18 00:18–03:09.
+  - On this warning MuJoCo resets the simulation state and continues, so the affected episode is silently
+    corrupted from that step on.
+  - **4 are deterministic in the hard sim data:** the same sim times (14.15, 18.60, 35.00, 36.87 s) appear in
+    the original generation and in the regeneration, so about 4 / 2000 episodes (0.2 %).
+  - The rest occur late in episodes (t ≈ 45–49 s) during learned-policy validation / evaluation, most likely
+    a policy pressing the panel hard into the wall near the time-out: a handful out of thousands of episodes.
+  - Impact on the reported numbers: negligible (they count as failures either way), but it is a correctness
+    issue.
+  - **Proposed fix (not done; it changes the data, user's call):** the env checks `data.warning`
+    (mjWARN_BADQVEL / BADQACC) after each substep and ends the episode with `info["unstable"] = True`;
+    regenerate the data and exclude or flag such episodes.
+  - MUJOCO_LOG.TXT is git-ignored; this entry is the record.
+- Commit `e4ed52a` "Hard challenge: …" as the user (no trailers). MUJOCO_LOG.TXT was unstaged and
+  git-ignored; the notebook entry above went into the next commit.
+- **Technical report draft** `docs/technical_report.md` (about 4 pages): architecture and decisions, training
+  methodology, easy + hard results, failure analysis, deployment summary. One overstatement fixed while
+  drafting ("IQL collides more than BC" → "than the BC control on the same data"; BC on demos alone collides
+  most).
+- **Submission video** `scripts/make_submission_video.py` → `media/submission_video.mp4`: **3.0 min**, 1,790
+  frames. Title cards + 10 labelled clips at 2×: easy env/scripted, hard scripted, BC success + failure (grasp
+  fixed point), IQL success + failure (off-wall release), hard BC-demos failure (mid-air drop), hard BC
+  control out-of-demo success, best hard IQL success + failure (held at end), takeaways. Covers the doc's
+  requirements: environment, data-collection rollout, learned policy, failure cases with interpretation.
+  Cards checked visually.

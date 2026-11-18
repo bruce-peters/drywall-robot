@@ -8,6 +8,10 @@ rack anywhere around the robot) has its own section. Headlines on 100 held-out t
   **IQL 39 % / 22 %**. Sim data is what lets a policy work outside the demos' coverage; offline RL still
   didn't beat BC on the same data. Scripted controller 99 % / 92 %.
 - **Part D** deployment proposal: [`docs/deployment_proposal.md`](docs/deployment_proposal.md).
+- **Technical report (draft):** [`docs/technical_report.md`](docs/technical_report.md).
+- **Submission video (3 min):** [`media/submission_video.mp4`](media/submission_video.mp4), built by
+  `python scripts/make_submission_video.py` from the labelled clips, with title cards explaining each
+  clip and interpreting the failures.
 
 A Franka Panda with a suction plate picks a 0.6 × 0.4 × 0.01 m drywall panel off a rack,
 carries it to a wall, aligns it with a target region, places it flush against the wall and
