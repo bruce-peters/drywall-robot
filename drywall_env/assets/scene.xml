@@ -7,7 +7,7 @@
 -->
 <mujoco model="drywall_cell">
   <compiler angle="radian" autolimits="true"/>
-  <option timestep="0.002" integrator="implicitfast" impratio="10"/>
+  <option timestep="0.0016666666666666668" integrator="implicitfast" impratio="10"/>
 
   <visual>
     <global offwidth="640" offheight="480"/>

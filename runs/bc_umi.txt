@@ -1,0 +1,38 @@
+BC on 334 train / 37 val episodes (63644 transitions), device cuda
+step   1000  val loss 0.1019 (mse 0.0685, bce 0.0334)  4 s
+step   2000  val loss 0.0929 (mse 0.0606, bce 0.0323)  8 s
+step   3000  val loss 0.0914 (mse 0.0588, bce 0.0326)  11 s
+step   4000  val loss 0.0912 (mse 0.0570, bce 0.0342)  15 s
+step   5000  val loss 0.0866 (mse 0.0552, bce 0.0314)  18 s
+step   5000  VAL ROLLOUTS success 0 %  pos 806.1 mm  collisions 6 %
+step   6000  val loss 0.0874 (mse 0.0565, bce 0.0310)  125 s
+step   7000  val loss 0.0905 (mse 0.0546, bce 0.0359)  129 s
+step   8000  val loss 0.0855 (mse 0.0544, bce 0.0310)  133 s
+step   9000  val loss 0.0857 (mse 0.0539, bce 0.0318)  137 s
+step  10000  val loss 0.0835 (mse 0.0533, bce 0.0302)  140 s
+step  10000  VAL ROLLOUTS success 0 %  pos 806.1 mm  collisions 16 %
+step  11000  val loss 0.0840 (mse 0.0535, bce 0.0304)  242 s
+step  12000  val loss 0.0857 (mse 0.0541, bce 0.0316)  246 s
+step  13000  val loss 0.0849 (mse 0.0528, bce 0.0321)  249 s
+step  14000  val loss 0.0857 (mse 0.0527, bce 0.0330)  252 s
+step  15000  val loss 0.0851 (mse 0.0527, bce 0.0324)  257 s
+step  15000  VAL ROLLOUTS success 8 %  pos 732.7 mm  collisions 2 %
+step  16000  val loss 0.0837 (mse 0.0525, bce 0.0312)  353 s
+step  17000  val loss 0.0837 (mse 0.0521, bce 0.0316)  357 s
+step  18000  val loss 0.0838 (mse 0.0523, bce 0.0315)  360 s
+step  19000  val loss 0.0835 (mse 0.0526, bce 0.0309)  364 s
+step  20000  val loss 0.0844 (mse 0.0527, bce 0.0317)  367 s
+step  20000  VAL ROLLOUTS success 8 %  pos 742.4 mm  collisions 4 %
+step  21000  val loss 0.0860 (mse 0.0532, bce 0.0328)  560 s
+step  22000  val loss 0.0848 (mse 0.0527, bce 0.0321)  563 s
+step  23000  val loss 0.0855 (mse 0.0527, bce 0.0329)  567 s
+step  24000  val loss 0.0846 (mse 0.0524, bce 0.0322)  571 s
+step  25000  val loss 0.0860 (mse 0.0524, bce 0.0336)  575 s
+step  25000  VAL ROLLOUTS success 22 %  pos 611.8 mm  collisions 6 %
+step  26000  val loss 0.0853 (mse 0.0526, bce 0.0327)  660 s
+step  27000  val loss 0.0853 (mse 0.0524, bce 0.0328)  666 s
+step  28000  val loss 0.0853 (mse 0.0524, bce 0.0328)  671 s
+step  29000  val loss 0.0849 (mse 0.0524, bce 0.0325)  677 s
+step  30000  val loss 0.0851 (mse 0.0524, bce 0.0327)  683 s
+step  30000  VAL ROLLOUTS success 16 %  pos 677.4 mm  collisions 0 %
+saved checkpoints\bc_umi.pt  (789 s)

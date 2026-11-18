@@ -41,7 +41,8 @@ class ScriptedController:
         self.rng = np.random.default_rng(seed)
         # Tuning
         self.hover = 0.10  # m above the panel before descending
-        self.descend_gap = 0.003  # m: plate face stops this far above the panel face
+        self.descend_gap_nominal = 0.003  # m: plate face stops this far above the panel face
+        # (the per-episode self.descend_gap starts here and shrinks on attach retries)
         self.lift_height = 0.45  # m (base frame z) to lift the panel to
         # Rotate tool-down -> tool-forward at (rotate_x, 0, z) on the robot's centre line, clear
         # of the wall, then advance on the centre line to the standoff depth before moving
@@ -60,6 +61,7 @@ class ScriptedController:
     def reset(self):
         self.phase = "approach"
         self._t_phase = 0
+        self.descend_gap = self.descend_gap_nominal  # undo attach-retry adjustments
         self._grasp_ee_in_panel = None  # (pos, quat) of EE in panel frame, recorded at attach
         self._last_ee = None
         self._stall = 0

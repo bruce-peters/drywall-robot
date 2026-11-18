@@ -122,6 +122,14 @@ def test_reward_terms_sum_to_reward(env):
                                          "action", "jerk", "drop", "success"}
 
 
+def test_scripted_reset_restores_descend_gap():
+    """Attach retries shrink descend_gap; reset() must restore it for the next episode."""
+    ctrl = ScriptedController()
+    ctrl.descend_gap -= 0.004  # as after two refused attaches
+    ctrl.reset()
+    assert ctrl.descend_gap == ctrl.descend_gap_nominal
+
+
 def test_scripted_success_rate():
     """Scripted controller succeeds on >= 90 % of 20 seeds."""
     e = DrywallPlacementEnv()

@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.mp4
-!media/seed0.mp4
+!media/*.mp4
+data/

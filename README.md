@@ -6,7 +6,7 @@ releases it onto a ledge fixture. Gymnasium-style API, Cartesian end-effector de
 deployable vs. sim-only observations, separately logged reward terms, seeded randomization, and
 a scripted waypoint controller that uses only the policy interface.
 
-Demo video: [`media/seed0.mp4`](media/seed0.mp4), seed 0, with the overview on the left and the side view on the right.
+Demo video: [`media/scripted_seed0.mp4`](media/scripted_seed0.mp4), the **scripted controller** (no learned policy) on seed 0, with the overview on the left and the side view on the right.
 
 ## Setup
 
@@ -34,6 +34,235 @@ python -m pytest -q                                       # tests (~10 s)
 `eval_scripted.py` also takes `--action-noise STD` (scripted-controller action noise) and
 `--start-seed`.
 
+## UMI-style demonstration dataset
+
+```bash
+python scripts/record_umi.py --n 500 --out data/umi_sim.npz   # ~40 min, ~6-7 GB
+```
+
+The script writes scripted demonstrations as if they had been recorded with a UMI hand-held
+gripper (Chi et al. 2024, arXiv:2402.10329). The scripted controller stands in for the human.
+The file contains only what UMI records, plus the target-relative pose and an external camera:
+
+| key (`episode_XXX/…`) | shape, dtype | rate | meaning |
+|---|---|---|---|
+| `timestamp` | (T,) float64 | 60 Hz | s, session clock; episodes run back to back |
+| `ee_pos`, `ee_quat` | (T,3), (T,4) float32 | 60 Hz | absolute EE (suction face) pose, world frame, wxyz |
+| `attached` | (T,) uint8 | 60 Hz | gripper state: 1 = suction holding the panel |
+| `panel_pos_in_target`, `panel_quat_in_target` | (T,3), (T,4) float32 | 60 Hz | panel pose in the target frame |
+| `image_timestamp` | (K,) float64 | 10 Hz | image k was taken at pose sample 6k |
+| `wrist_rgb` | (K,224,224,3) uint8 | 10 Hz | 155° equidistant fisheye on the plate (UMI's GoPro view) |
+| `external_rgb` | (K,224,224,3) uint8 | 10 Hz | fixed overview camera |
+| `start_time`, `end_time` | () float64 | per episode | episode boundaries |
+| `success` | () bool | per episode | the env's success criterion at the end of the episode |
+
+`meta/` holds `schema_version`, `n_episodes`, `pose_hz`, `image_hz` and `fisheye_fov_deg`. Load the file
+with `np.load(path)["episode_000/ee_pos"]`; arrays are read lazily.
+
+**Camera calibration** (in `meta/`, OpenCV conventions: x right, y down, z forward, pixel centres
+at integers; `T_a_b` = pose of b in a):
+- `wrist_K`, `wrist_D` (zeros), `wrist_model = "opencv_fisheye"`: equidistant, so `cv2.fisheye`
+  with D = 0. Also `T_ee_wrist`, the fixed mount in the EE frame.
+- `external_K`, `external_model = "opencv_pinhole"`, `T_world_external`.
+- `mirror_polygons` (normalised u, v), plus `mirror_normals`, `mirror_points` and
+  `mirror_virtual_origins` in the wrist camera frame (m).
+
+`tests/test_umi_recorder.py` checks this against the renderer. It ray-casts from each camera,
+projects the hit points with the stored calibration, and compares the result with a
+segmentation render: 98–99 % of pixels agree, and the misses are object edges. To add the
+calibration to a file recorded before it existed, run
+`python scripts/record_umi.py --out data/umi_sim.npz --append-calibration`.
+
+**Conversion to UMI's own format** (so UMI's diffusion-policy training code can read it directly):
+
+```bash
+python scripts/convert_to_umi_zarr.py --npz data/umi_sim.npz --out data/umi_sim.zarr.zip
+```
+
+This writes UMI's replay buffer (zarr v2 `ZipStore`, the layout from UMI's
+`07_generate_replay_buffer.py`): `data/camera0_rgb` (JpegXl level 99, one frame per chunk),
+`robot0_eef_pos`, `robot0_eef_rot_axis_angle`, `robot0_gripper_width`,
+`robot0_demo_start_pose`, `robot0_demo_end_pose`, and `meta/episode_ends`.
+- **Row rate:** rows are at 10 Hz, the image rate, so set `down_sample_steps = 1` in UMI's task config.
+- **Gripper width:** `robot0_gripper_width` is the suction state as 0.0/1.0, standing in for width.
+- **Extras UMI ignores:** `external_rgb`, `timestamp`, `panel_*_in_target`,
+  `meta/episode_success`, and the calibration as JSON in the root attrs.
+- **Relative trajectories:** UMI computes these at training time from the absolute poses, so they
+  aren't stored. `drywall_env.umi_zarr.relative_trajectory(pos, rotvec, base_index)` does the same
+  conversion, `T_rel = inv(T_base) @ T`.
+
+- **No actions, rewards or done flags.** UMI doesn't record them; they come from the poses.
+- **Sim-only metadata goes in a sidecar.** `data/umi_sim_sim_meta.npz` holds per-episode `seed`,
+  `action_noise_std`, randomization factors, `dropped`, `truncated` and `n_control_steps`, for
+  per-factor breakdowns.
+- **Demo quality varies.** Each episode draws scripted-controller action noise from U[0, 0.2],
+  so the dataset contains failures.
+- **Wrist camera.** It is mounted 5 cm past the panel's long edge and 5 cm behind the plate face,
+  looking along the approach direction. The panel would block a view along the plate normal.
+  MuJoCo has no fisheye, so the script renders a 768² pinhole at 155° and remaps it with
+  r = f·θ (2× supersampled).
+- **Side mirrors (UMI's implicit stereo).** Two flat mirrors appear in UMI's mirror regions,
+  lower left and lower right. The polygons are taken from UMI's `cv_util.py`.
+  - **Rendering:** each mirror pixel's ray is reflected off the mirror plane, and the scene is
+    sampled from the virtual camera, which is the lens reflected across that plane. This is
+    exact planar optics, so mirror content is mirror-flipped, as on a real GoPro.
+  - **Placement:** UMI's build guide only lists "plastic stick-on mirror" (the geometry is in
+    their CAD, which we don't have). So placement is chosen here: 6 cm from the lens, reflecting
+    to a forward view tilted 15° inward. That gives a stereo baseline of 11.9 cm between the two
+    virtual cameras.
+  - **Outside the circle:** 4.6% of each UMI polygon falls outside our inscribed 155° image circle
+    and stays black.
+  - **Not modelled:** mirror frames, tint and dirt.
+- **Mirror swap — NOTE:** the `.npz` keeps the **raw** view. `convert_to_umi_zarr.py` applies UMI's
+  digital reflection ("mirror swap") to `camera0_rgb` by default, which is what UMI's paper found
+  best for policies. So inside the two mirror regions, `camera0_rgb` ≠ npz `wrist_rgb`. Use
+  `--no-mirror-swap` to keep the raw view in the zarr. The root attr `mirror_swap` records which
+  was used.
+- **Assumptions:** no SLAM drift (exact poses), perfect gripper tracking, and human motion
+  approximated by the scripted controller.
+
+## Dataset viewer
+
+```bash
+python scripts/view_dataset.py --zarr data/umi_sim.zarr.zip --episodes 0-49
+python scripts/view_dataset.py --episodes 0-19 --camera wrist --overlay attached,error --3d
+```
+
+Opens a Tk window for browsing many episodes of the UMI zarr at once. All episodes start
+together, and an episode that has ended holds its last frame.
+- **Trajectory plots:** EE paths of the selected episodes in a top view and a side view, with the
+  wall and rack drawn in. Green = success, red = failure. A marker per episode moves with the
+  time slider (Play / speed).
+- **Camera grid** (`--camera wrist|external`, or the radio buttons): one tile per episode with a
+  green/red border.
+- **Overlays** (checkboxes or `--overlay`):
+  - `attached`: suction runs are drawn as thick path segments, plus a SUCTION badge on the tiles.
+  - `error`: markers are coloured by panel-to-target error (blue 0, yellow 50, red ≥ 100 mm),
+    with the error in mm and degrees shown on the tiles.
+- **3D replay** (button or `--3d`): a MuJoCo viewer showing the robot for the "focus ep",
+  re-posed by IK from its recorded EE poses, with the scene layout restored from its seed. All
+  selected episodes appear as EE path lines and translucent ghost panels at their recorded
+  panel pose. Ghost panels need the sidecar `*_sim_meta.npz` for each episode's target offset;
+  the viewer finds it next to the zarr automatically.
+
+## Part B — UMI demonstrations → robot data → behaviour cloning
+
+```bash
+python scripts/umi_to_transitions.py --replay 500       # B.B: zarr -> data/umi_transitions.npz (~4.5 min)
+python scripts/train_bc.py --chunk 8 --n-exec 4 --out checkpoints/bc_umi_h8.pt   # B.C (~7 min, GPU)
+python scripts/train_bc.py --out checkpoints/bc_umi.pt                          # single-step baseline
+python scripts/eval_policy.py --policy scripted checkpoints/bc_umi_h8.pt checkpoints/bc_umi.pt
+python scripts/eval_policy.py --policy checkpoints/bc_umi_h8.pt --video media/bc_umi_h8 --name "BC on UMI demos (chunked, H=8)"
+python scripts/plot_training.py runs/bc_umi_h8 runs/bc_umi                      # -> media/training_*.png
+python scripts/view_policy.py                                                    # interactive, see below
+```
+
+**Learning state (37-D, base frame), shared by Parts B and C.** It's the env's deployable observation without
+the joint states, because UMI has no robot joints:
+`ee_pos 3 | ee_rot6 6 | attached 1 | panel_pos 3 | panel_rot6 6 | target_pos 3 | target_rot6 6 | panel_in_target_pos 3 | panel_in_target_rot6 6`.
+- **Rotations:** stored as the 6D representation (first two rotation-matrix columns; Zhou et al., CVPR 2019,
+  as UMI does). Quaternions are not usable here: the tool-down EE orientation has w ≈ 0, and the w ≥ 0
+  convention flipped the EE quaternion's sign 10 times in one episode.
+- **One builder for both sources:** `transitions.build_state` builds the state from UMI data and from a
+  live env, so any policy trained on it runs in the env.
+
+**Conversion (`drywall_env/umi_to_robot.py`), each B.B requirement:**
+1. **World → base frame:** `p_b = R_bw p_w + t_bw`. The identity in this sim, but the test runs it with a
+   rotated and translated "SLAM map" frame and gets the same states.
+2. **Temporal resampling** to the 10 Hz control rate: linear for position, slerp for rotation, zero-order
+   hold for the gripper. This is exact here because UMI rows are already 10 Hz, and it works for any rate.
+3. **Absolute → relative:** the action is the base-frame pose delta between consecutive samples, scaled by the
+   env's 2 cm / 3° step limits and clipped to [−1, 1]. 0.9 % of actions were clipped.
+4. **Gripper mapping:** `gripper_width` (attached 0/1) becomes the attach bit +1 / −1, using the state after
+   the step.
+5. **Workspace:** EE samples outside the env's workspace box are counted: 0 in this dataset.
+
+**Rewards** use only the terms UMI data supports: position error, orientation error, action, jerk and
+success. Collision, contact force and drop need force or contact sensing, so they are 0 and documented.
+Every term is stored separately so the data can be relabelled.
+
+**Terminals:** `terminal = True` on the last step of successful episodes. Failed episodes end as `timeout`s.
+
+**Assumptions** needed to treat the synthetic trajectories as UMI demonstrations: poses without SLAM drift,
+perfect gripper sensing, a human approximated by the noisy scripted controller, and the target pose from the
+sim sidecar as a stand-in for perception (fiducials or a laser-registered wall layout).
+
+**Conversion check:**
+- **States match exactly:** rebuilding a recorded episode's states from the zarr matches a re-run of the same
+  episode in the env to 1.2e-7.
+- **Open-loop replay** of the derived actions on all 500 episodes:
+  - 73.4 % success vs 74.2 % recorded; outcome agreement 87 %.
+  - 91 % of recorded successes succeed again; EE tracking error 7.2 mm.
+  - A one-step latency shift made replay worse (13 mm), so lag = 0.
+
+**File format** (`drywall_env/transitions.py`), D4RL-style `.npz`:
+- **Training arrays:** `observations, actions, rewards, next_observations, terminals, timeouts`.
+- **Episode arrays:** `episode_ends, episode_success, episode_seed`.
+- **Extras:** `reward/<term>` and `meta_json`.
+- Nothing else; images stay in the zarr.
+
+**Policy (`drywall_env/policies.py`):** MLP 3×256 + LayerNorm on normalized states.
+- **Output:** 6 motion dims (tanh) and 1 attach logit.
+- **Loss:** MSE + BCE, which is the negative log-likelihood of a fixed-variance Gaussian × Bernoulli.
+- **Action chunking:** the network predicts H = 8 actions, 4 are executed, then it re-plans (ACT /
+  Diffusion Policy style).
+- **Data:** filtered BC on the 371 successful demos (334 train, 37 held out), 30k steps.
+
+**Results on held-out test seeds 10000–10099 (100 episodes each, never used for training or model choice):**
+
+| policy | success | 95 % CI | pos err (mm, mean) | ori err (°) | collision | length (steps) |
+|---|---|---|---|---|---|---|
+| scripted controller | 100 % | 96–100 % | 3.1 | 0.04 | 0 % | 171 |
+| **BC, chunked H = 8** (`bc_umi_h8`) | **80 %** | 71–87 % | 132.7 | 14.6 | 9 % | 196 |
+| BC, single-step (`bc_umi`) | 23 % | 16–32 % | 619.4 | 68.6 | 2 % | 272 |
+
+**Model choice:** chunked vs single-step was chosen on validation seeds 5000–5049 (84 % vs 16 %); both are
+shown here. Training curves: `media/training_bc_umi_h8.png`, `media/training_bc_umi.png`. Videos:
+`media/bc_umi_h8_success.mp4`, `media/bc_umi_h8_failure.mp4` (labelled in the frame).
+
+**BC failure analysis.** All 20 failures of `bc_umi_h8` are 300-step time-outs, of two kinds:
+- **Never grasped (16):** the policy descends to about 9 mm above the panel face and stops. It never
+  commands suction (the env would accept up to 30 mm). Near the goal the demonstrated motions are tiny, so
+  the regressed motion goes to ≈ 0 before reaching the state where the demos switch suction on: a BC fixed
+  point.
+- **Released early (4):** the panel is carried to the target but released about 7 mm short of the wall. It
+  lands on the ledge, but the fixture needs ≤ 2 mm, so it isn't counted as placed.
+
+**Two more findings:**
+- **Held-out loss is a poor proxy for success:** the held-out attach BCE rises after about 3k steps
+  (overfitting the suction timing) while closed-loop success keeps rising. That's why training also logs
+  validation rollouts.
+- **Why chunking helps so much:** single-step BC is badly hurt by phase ambiguity (hovering and starting to
+  descend look identical), and committing to 8-step segments fixes most of it.
+
+**From this MLP to a pretrained VLA.** The same data and interface would post-train a pretrained
+vision-language-action model (for example π0, OpenVLA or Octo). Each transition supplies:
+- **Image observations:** the zarr's wrist fisheye + external camera at 10 Hz.
+- **Proprioception:** the EE pose and suction state in this repo's 37-D layout (or its EE-only part).
+- **Action target:** the same base-frame delta chunk (H × 7), plus a language instruction ("place the panel
+  on the wall target").
+
+Fine-tuning replaces this MLP's loss with the VLA's action head (flow matching, diffusion or tokenized
+actions) on the same (observation, action-chunk) pairs. The UMI → robot conversion, the action space and the
+evaluation harness stay the same. What changes is input normalization (the VLA's own statistics, or
+per-embodiment statistics) and the action horizon, which must match the VLA's chunk length.
+
+## Policy viewer (Parts B and C)
+
+```bash
+python scripts/view_policy.py            # models: scripted + every checkpoints/*.pt
+```
+
+The MuJoCo 3D viewer plus a Tk panel, using the same single-thread pattern as `view_interactive.py`.
+- **Single test:** pick a model and a seed (default 10000, the first test seed), then Play / Step / Reset with
+  a live readout.
+- **Many tests:** **Run N** runs N consecutive seeds with the chosen model. **watch** shows each episode in
+  3D at the speed slider's rate; untick it to run fast. Every finished episode becomes a row (seed, model,
+  result, errors, collision, steps), and a summary line per model shows success rate, median error,
+  collision rate and length.
+- **Replay:** click a row to replay that episode in 3D. The replay is added as a new row.
+- **Stop:** ends a batch.
+
 ## Interactive viewer
 
 ```bash
@@ -57,11 +286,11 @@ When the episode ends, stepping stops until you press Reset. Closing either wind
 |---|---|
 | success rate | **100 %** (50/50) |
 | drop rate | 0 % |
-| mean final position error | 3.07 mm (the 3 mm is the designed drop onto the ledge) |
-| mean final orientation error | 0.037° |
+| mean final position error | 3.06 mm (the 3 mm is the designed drop onto the ledge) |
+| mean final orientation error | 0.041° |
 | collision rate (episodes with ≥1 collision step) | 0 % |
 | mean episode length | 171 steps (17.1 s) |
-| peak panel–wall force | mean 15 N, worst 55 N (seed 18, just above the 50 N threshold) |
+| peak panel–wall force | mean 13 N, worst 46 N |
 
 With `--action-noise 0.2` (10 seeds): 40 % success, 50 % collision rate, which shows the knob
 produces imperfect demos.
@@ -82,8 +311,11 @@ drywall_env/
   env.py             DrywallPlacementEnv, EnvConfig
   scripted.py        ScriptedController (waypoint state machine)
   transforms.py      quaternion / RPY helpers (wxyz)
-scripts/run_scripted.py, scripts/eval_scripted.py
-tests/test_env.py
+  umi_recorder.py    UMI-style dataset recorder (60 Hz poses, 10 Hz fisheye + external images)
+  umi_zarr.py        conversion to UMI's zarr replay buffer, relative_trajectory()
+scripts/run_scripted.py, scripts/eval_scripted.py, scripts/record_umi.py,
+  scripts/convert_to_umi_zarr.py, scripts/view_dataset.py
+tests/test_env.py, tests/test_umi_recorder.py
 LABNOTEBOOK.md       full development log (every decision, failure and fix)
 ```
 
@@ -112,7 +344,9 @@ obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step(action)
 ```
 
-**Timing:** physics dt 0.002 s, 50 substeps per step → 10 Hz control, max 300 steps (30 s).
+**Timing:** physics dt 1/600 s, 60 substeps per step → 10 Hz control, max 300 steps (30 s).
+The dt was 0.002 s until 2026-11-16 and was changed so the UMI recorder can sample at exactly 60 Hz
+(every 10 substeps; see LABNOTEBOOK). `media/scripted_seed0.mp4` was re-rendered at the new dt.
 
 **Action** `Box(-1, 1, (7,), float32)`: `[dx, dy, dz, droll, dpitch, dyaw, attach]`.
 - **Translation:** each step moves at most 2 cm.
@@ -140,6 +374,12 @@ How a step is processed:
 | | `target_pos`, `target_quat` | 3, 4 | exact |
 | | `panel_wall_force`, `panel_ledge_force`, `panel_rack_force`, `robot_env_force` | 1 each | summed normal contact forces (N) |
 | **policy** | flat float32 vector | 43 | the 36 deployable values (in the order above), then the panel pose in the estimated target frame (pos 3 + quat 4) |
+
+**Who reads which group.**
+- **Policies and the scripted controller:** read only `policy` or `deployable`. `policy` is built from deployable values alone.
+- **Privileged:** reserved for training-time helpers (an asymmetric critic, a teacher policy) and for evaluation and debugging. It must never be an input to a deployed policy.
+- **Wrapping the whole dict:** for example with `gymnasium.wrappers.FlattenObservation`. This would leak the privileged values into the policy, so training code selects `obs["policy"]` explicitly.
+- **Cameras:** not part of the env observation. Policies here use pose estimates in their place. The wrist and external cameras are rendered by the UMI recorder.
 
 **Reward** (each term logged in `info["reward_terms"]`; the reward is their sum):
 
@@ -170,6 +410,12 @@ Other `info` keys: `attached`, `attach_failed`, `fixture_active`, `collision`,
 / `is_success`, `dropped`, `steps`.
 
 ## Design decisions
+
+**Why one arm instead of the spec's bimanual robot.**
+- **Allowed by the spec:** it allows simplifying to a single arm. The scaled panel (0.6 × 0.4 m, 1–3 kg) can be carried and pressed flush by one centred suction plate, so a second arm adds coordination work without changing what the env tests.
+- **Payload:** the Panda is rated for 3 kg, while plate plus the heaviest panel is 3.5 kg. The sim does not enforce payload limits, so this is not modelled.
+- **Full-size panels:** these (1.2 × 2.4 m, ~25 kg) would need the second arm, or a lift, to support the far edge.
+- **Interface stays the same:** the action and observation interface extends to two arms by stacking per-arm EE deltas and attach bits.
 
 **Why suction + weld.**
 - **Why suction:** drywall is handled with vacuum lifters in practice. A flat plate also contacts the large face, so it can carry the panel and then press it flush against the wall. A parallel gripper can do neither on a 1 cm panel.
@@ -223,7 +469,7 @@ and the 7-D action. It needs two known constants, the panel thickness and the pl
 - **Weld-based attachment.** Ideal suction: no vacuum build-up time, no leak, no slip or peel
   under moment load, no cup compliance. Attach is a distance/alignment check, not a seal model.
 - **Approximate contact.** MuJoCo soft contacts; forces depend on solver parameters.
-  Wall forces come from position-servo stiffness, not a force or impedance controller, so the scripted contact phase reaches up to about 55 N.
+  Wall forces come from position-servo stiffness, not a force or impedance controller, so the scripted contact phase reaches up to about 46 N.
   A released panel springs back about 1 mm, which is why contact is defined as ≤ 2 mm.
 - **Fixture is a weld.** It holds the panel at whatever pose it was released in (within 2 mm of the wall). There are no fastening forces and no clamping toward flush.
 - **No camera-based perception yet.** Panel and target poses are ground truth plus optional

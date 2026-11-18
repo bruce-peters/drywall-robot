@@ -5,3 +5,10 @@ numpy==2.5.4
 imageio==2.38.1
 imageio-ffmpeg==0.8.1
 pytest==9.2.0
+zarr==2.18.7
+numcodecs==0.15.2
+imagecodecs==2026.11.11
+matplotlib==3.11.2
+# PyTorch with CUDA 12.8 (Parts B/C). CPU-only also works: pip install torch==2.11.0
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0

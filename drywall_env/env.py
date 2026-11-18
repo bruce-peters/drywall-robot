@@ -30,7 +30,7 @@ PANEL_HALF = np.array([0.3, 0.2, 0.005])
 @dataclass
 class EnvConfig:
     # Timing
-    substeps: int = 50  # physics dt 0.002 s (scene.xml) -> 10 Hz control
+    substeps: int = 60  # physics dt 1/600 s (scene.xml) -> 10 Hz control; 60 Hz = every 10 substeps
     max_steps: int = 300
     # Action scaling (per control step, robot base frame)
     max_pos_step: float = 0.02  # m
@@ -156,6 +156,9 @@ class DrywallPlacementEnv(gym.Env):
 
         self._renderer = None
         self._cams = None
+        # Optional callable(env, substep_index) run after every physics substep (used by the
+        # 60 Hz UMI-style recorder). Read-only observers only: must not modify model/data.
+        self.substep_hook = None
 
     # ------------------------------------------------------------------ helpers
     def _base_pose(self):
@@ -355,7 +358,7 @@ class DrywallPlacementEnv(gym.Env):
         max_wall_force = 0.0
         collision = False
         floor = False
-        for _ in range(cfg.substeps):
+        for i in range(cfg.substeps):
             mujoco.mj_step(m, d)
             c = self._contact_metrics()
             max_wall_force = max(max_wall_force, c["wall"])
@@ -367,6 +370,8 @@ class DrywallPlacementEnv(gym.Env):
                 c["panel_wall_contact"] or self._panel_wall_dist() <= cfg.wall_contact_tol
             ):
                 self._activate_weld(self._eq_fixture, self._wall_body, self._panel_body)
+            if self.substep_hook is not None:
+                self.substep_hook(self, i)
         self._last_contacts = c
         self._steps += 1
 
