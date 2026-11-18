@@ -1,0 +1,11 @@
+iql_sim_b3: success 58.0 % (95% CI 48-67), 158 s
+iql_sim_b10: success 61.0 % (95% CI 51-70), 171 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_sim_b3 | 58 % | 48-67 % | 132.4 | 14.47 | 22 % | 0 % | 231 |
+| iql_sim_b10 | 61 % | 51-70 % | 55.7 | 6.14 | 14 % | 0 % | 229 |
+
+failure modes (episodes):
+  iql_sim_b3         never_grasped 14  held_at_end 12  released_off_wall 14  released_misaligned 2
+  iql_sim_b10        never_grasped 5  held_at_end 10  released_off_wall 21  released_misaligned 3

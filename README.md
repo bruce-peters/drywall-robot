@@ -1,4 +1,8 @@
-# Drywall panel placement — MuJoCo environment (Part A)
+# Drywall panel placement — sim environment, UMI-style demos, BC and offline RL (Parts A–C)
+
+**Part B (UMI → BC) and Part C (offline RL / IQL)** start at "Part B" below. Headline on 100 held-out test
+seeds: scripted 100 %, **BC on UMI demos 80 %**, **IQL on UMI + sim data 71 %**. RL removed BC's grasp
+failures but added release failures (details and failure analysis in Part C).
 
 A Franka Panda with a suction plate picks a 0.6 × 0.4 × 0.01 m drywall panel off a rack,
 carries it to a wall, aligns it with a target region, places it flush against the wall and
@@ -247,6 +251,116 @@ actions) on the same (observation, action-chunk) pairs. The UMI → robot conver
 evaluation harness stay the same. What changes is input normalization (the VLA's own statistics, or
 per-embodiment statistics) and the action horizon, which must match the VLA's chunk length.
 
+## Part C — Simulation-based offline RL (IQL)
+
+```bash
+python scripts/generate_offline_data.py --bc checkpoints/bc_umi_h8.pt     # C.A -> data/offline_sim.npz (~2 min, 22 procs)
+python scripts/train_iql.py --data data/offline_sim.npz --beta 3  --chunk 8 --n-exec 4 --out checkpoints/iql_sim_b3.pt
+python scripts/train_iql.py --data data/offline_sim.npz --beta 10 --chunk 8 --n-exec 4 --out checkpoints/iql_sim_b10.pt
+python scripts/train_iql.py --data data/umi_transitions.npz data/offline_sim.npz --reward-terms umi \
+       --beta 3  --chunk 8 --n-exec 4 --out checkpoints/iql_umi_sim_b3.pt          # ~1 h each on an RTX 4070
+python scripts/train_iql.py --data data/umi_transitions.npz data/offline_sim.npz --reward-terms umi \
+       --beta 10 --chunk 8 --n-exec 4 --out checkpoints/iql_umi_sim_b10.pt
+python scripts/train_bc.py --data data/umi_transitions.npz data/offline_sim.npz --chunk 8 --n-exec 4 \
+       --out checkpoints/bc_umi_sim_h8.pt                                          # control: BC on the same data
+python scripts/eval_policy.py --policy scripted checkpoints/*.pt                  # -> results/*.json
+python scripts/plot_training.py runs/iql_* --compare results/*.json             # -> media/*.png
+```
+
+**C.A Offline dataset** (`data/offline_sim.npz`): 1,000 episodes on seeds 1000–1999, 234,717 transitions,
+same 37-D state and file format as Part B.
+- **Behaviour policies, mixed per episode:**
+  - the scripted controller (477 episodes, 55 % success);
+  - the Part B BC policy (523 episodes, 59 % success).
+  - Both add Gaussian action noise with std ~ U[0, 0.3].
+- **Randomized factors:** panel position and yaw on the rack, target offset, panel mass, panel friction, and
+  action noise.
+- **Overall:** 57 % success, 2.5–6 % drops, and collisions in 20 % (scripted) and 63 % (BC) of episodes, so
+  plenty of failures to learn from.
+- **Rewards:** the env's full reward, every term stored separately.
+- **Stored action:** the one actually executed, after noise and clipping.
+
+**C.B Algorithm: Implicit Q-Learning, implemented from scratch in `scripts/train_iql.py`.** It follows
+Kostrikov et al., ICLR 2022 (arXiv:2110.06169); the docstring derives each loss.
+- **Value, eq. 5:** `L_V = E[ L2^τ(Q̂(s,a) − V(s)) ]` with the expectile loss `L2^τ(u) = |τ − 1(u<0)| u²`.
+- **Q-function, eq. 6:** `L_Q = E[ (r + γ(1−done) V(s') − Q(s,a))² ]`.
+- **Policy, eq. 7:** `L_π = −E[ exp(β(Q̂ − V)) log π(a|s) ]`, with the weight clipped at 100.
+- **Settings:** twin target critics with Polyak 0.005, τ = 0.7, γ = 0.99, lr 3e-4, batch 256, 200k steps,
+  reward × 0.1.
+- **The actor is the Part B network** (chunk 8, execute 4), so IQL's actor loss is BC's loss times a per-sample
+  weight. Each chunk is weighted by the advantage of its *first* action; this is an approximation, see
+  limitations.
+
+**Why this is offline RL, not online:**
+- **No environment interaction during learning:** the update loop reads only the fixed arrays and never
+  calls `env.step`.
+- **No unseen actions:** IQL never evaluates Q at an action outside the dataset. V is an upper expectile of Q
+  over *dataset* actions, and the TD target uses V(s′), not max_a′ Q(s′, a′). So it avoids the
+  out-of-distribution over-estimation that CQL handles with a penalty.
+- **Validation rollouts are measurement only:** every 20k steps, 50 episodes on seeds 5000–5049. They're
+  never added to the data, never used for a gradient, and never used to choose a checkpoint (the final model
+  is always the last step).
+
+**C.C Comparison.**
+- **Protocol:** every policy runs on the same 100 held-out test seeds, 10000–10099. These seeds were never
+  used for data, training or model choice; the data scripts refuse them.
+- **Same conditions for all:** deterministic policies, no observation noise, success as defined in Part A.
+- **Uncertainty:** 95 % Wilson intervals, because 100 trials give about ±9 % at 70 %.
+
+| policy | training data | success (95 % CI) | median pos err | collisions | failure modes (of 100) |
+|---|---|---|---|---|---|
+| scripted controller | — | 100 % (96–100) | 3.1 mm | 0 % | — |
+| BC, single-step | UMI demos | 23 % (16–32) | 796 mm | 2 % | never grasped 76, held at end 1 |
+| **BC, chunked H=8** — demos only | UMI demos | **80 % (71–87)** | 3.7 mm | 9 % | never grasped 16, released off wall 4 |
+| BC, chunked — control | UMI + sim successes | 69 % (59–77) | 3.8 mm | 2 % | never grasped 27, released off wall 4 |
+| IQL β = 3 — sim only | sim offline data | 58 % (48–67) | 7.3 mm | 22 % | never grasped 14, held 12, off wall 14, misaligned 2 |
+| IQL β = 10 — sim only | sim offline data | 61 % (51–70) | 7.3 mm | 14 % | never grasped 5, held 10, off wall 21, misaligned 3 |
+| **IQL β = 3 — combined** | UMI + sim | **71 % (61–79)** | 4.9 mm | 8 % | never grasped 9, held 6, off wall 14 |
+| IQL β = 10 — combined | UMI + sim | 68 % (58–76) | 5.2 mm | 12 % | never grasped 3, held 6, off wall 22, misaligned 1 |
+
+Mean episode lengths: 171 (scripted), 196 (BC H=8) and 210–231 (IQL) steps; 300 is the time-out. No policy
+dropped a panel on the test seeds. Charts: `media/comparison.png` and `media/training_*.png`. Videos:
+`media/iql_umi_sim_b3_success.mp4` and `media/iql_umi_sim_b3_failure.mp4`. Per-episode results:
+`results/*.json`.
+
+**Findings.**
+1. **Offline RL did not beat behaviour cloning on success rate.** The best IQL policy (71 %) and BC on the
+   demos (80 %) overlap in their confidence intervals, and BC's point estimate is higher. With 100 trials we
+   can't distinguish them; we can say IQL is not clearly better.
+2. **RL changes *how* the policy fails.** IQL largely removes BC's fixed point: "never grasped" drops from
+   16–27 to 3–9. That's the failure a reward can fix and a regression loss can't. But IQL adds release
+   failures: still holding the panel at time-out (6–12), or releasing it more than 2 mm off the wall (14–22,
+   vs BC's 4).
+3. **Same data, RL vs BC:** IQL-combined (71 %) ≈ the BC control on the same data's successes (69 %). The
+   advantage weighting buys a different failure profile, not a higher success rate.
+4. **Combining data helps IQL:** UMI + sim (68–71 %) beats sim alone (58–61 %). The clean demonstrations
+   anchor the actor where noisy sim data is ambiguous. For plain BC, adding noisier sim successes *hurts*
+   (80 % → 69 %).
+5. **IQL policies collide more:** 8–22 % vs 2–9 % for BC. The UMI-subset reward has no collision term, yet
+   the sim-only runs, whose reward does penalize collisions, collide most. So it isn't just a missing penalty.
+   They imitate the noisy, collision-heavy behaviour data (63 % of noisy-BC episodes collided) with only weak
+   advantage reweighting (mean weight 1.1–1.4 at β = 3).
+6. **β:** β = 10 shifts failures from grasping to releasing and lowers position error, but doesn't change
+   success within the noise.
+
+**Why IQL underperformed: hypotheses, not verified.**
+- **The critic didn't converge in 200k steps.** For UMI + sim, mean V rose to about +1.0 at 45k steps and was
+  still drifting down at 200k (≈ +0.15), against −1.03 for the data's empirical discounted return. Validation
+  success swung ±15–20 % between checkpoints, beyond the ±14 % sampling noise. The paper trains for 1M steps.
+- **The release decision is a single sparse event.** Success (+100) arrives 5 stable steps after release,
+  only if the panel is within 2 mm of the wall, and the Q-function has to resolve a 7-D action whose deciding
+  dimension is one bit.
+- **Chunk weighting:** a chunk of 8 actions is weighted by A(s_t, a_t) of its first action only.
+- **The reward doesn't separate "touching" from "almost touching" while the panel is held.** pos_error
+  changes by about 5 mm between them, which is −0.0005 per step after scaling.
+
+**Next steps if continued:**
+- Train longer (1M steps).
+- Use an EMA of the actor weights, which deploys a smoothed model rather than picking a checkpoint.
+- Use a chunk-level critic Q(s, a_t:t+H).
+- Shape the reward with a dense contact or wall-distance term.
+- Weight demonstrations higher in the combined data.
+
 ## Policy viewer (Parts B and C)
 
 ```bash
@@ -313,9 +427,19 @@ drywall_env/
   transforms.py      quaternion / RPY helpers (wxyz)
   umi_recorder.py    UMI-style dataset recorder (60 Hz poses, 10 Hz fisheye + external images)
   umi_zarr.py        conversion to UMI's zarr replay buffer, relative_trajectory()
+  transitions.py     37-D learning state (6D rotations), transition file format, seed allocation
+  umi_to_robot.py    Part B.B: UMI -> robot actions (frame, resampling, deltas, gripper, workspace)
+  policies.py        actor network (MLP + action chunking), TorchPolicy / ScriptedPolicy, checkpoints
+  evaluation.py      rollouts, task-doc metrics, Wilson CI, failure-mode classification
+  training_utils.py  JSONL logging, validation rollouts
 scripts/run_scripted.py, scripts/eval_scripted.py, scripts/record_umi.py,
   scripts/convert_to_umi_zarr.py, scripts/view_dataset.py
-tests/test_env.py, tests/test_umi_recorder.py
+scripts/umi_to_transitions.py (B.B), train_bc.py (B.C), generate_offline_data.py (C.A),
+  train_iql.py (C.B), eval_policy.py + plot_training.py (C.C), view_policy.py (viewer)
+tests/test_env.py, tests/test_umi_recorder.py, tests/test_transitions.py, tests/test_policies.py,
+  tests/test_iql.py
+checkpoints/*.pt     final actors (+ *.critics.pt for IQL); runs/<name>/log.jsonl training logs;
+results/*.json       per-episode test results; media/ charts and labelled videos
 LABNOTEBOOK.md       full development log (every decision, failure and fix)
 ```
 

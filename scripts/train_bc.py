@@ -24,12 +24,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from drywall_env import DrywallPlacementEnv  # noqa: E402
 from drywall_env.policies import ActorNet, action_chunks, save_actor  # noqa: E402
 from drywall_env.training_utils import JsonlLogger, set_seed, validation_rollouts  # noqa: E402
-from drywall_env.transitions import check_not_test_seeds, episode_slices, load_transitions  # noqa: E402
+from drywall_env.transitions import UMI_REWARD_TERMS, episode_slices, load_many  # noqa: E402
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default="data/umi_transitions.npz")
+    ap.add_argument("--data", nargs="+", default=["data/umi_transitions.npz"])
     ap.add_argument("--out", default="checkpoints/bc_umi.pt")
     ap.add_argument("--log", default=None, help="default runs/<out stem>/log.jsonl")
     ap.add_argument("--all-episodes", action="store_true", help="also train on failed demos")
@@ -50,8 +50,7 @@ def main():
     set_seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     log_path = args.log or f"runs/{Path(args.out).stem}/log.jsonl"
-    D = load_transitions(args.data)
-    check_not_test_seeds(D["episode_seed"])
+    D = load_many(args.data, reward_terms=UMI_REWARD_TERMS)  # refuses test seeds; rewards unused by BC
 
     # episodes -> train / val split (by episode, so the val loss measures generalisation)
     eps = episode_slices(D["episode_ends"])

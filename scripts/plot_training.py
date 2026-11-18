@@ -27,6 +27,16 @@ C = {"blue": "#2b6cb0", "orange": "#dd6b20", "green": "#2f855a", "red": "#c53030
      "purple": "#6b46c1"}
 
 
+def kfmt(fig):
+    """Gradient-step axes as 50k / 100k instead of 50000 / 100000."""
+    from matplotlib.ticker import FuncFormatter
+
+    f = FuncFormatter(lambda x, _: f"{x / 1000:g}k" if abs(x) >= 1000 else f"{x:g}")
+    for ax in fig.axes:
+        if ax.get_xlabel() == "gradient step":
+            ax.xaxis.set_major_formatter(f)
+
+
 def read_log(run_dir):
     recs = [json.loads(line) for line in open(Path(run_dir) / "log.jsonl", encoding="utf-8")]
     by = {}
@@ -94,6 +104,7 @@ def plot_bc(L, name, out):
     fig.text(0.01, 0.005, "Train loss = running mean over 200 steps. Held-out loss = demo episodes withheld from "
              "training. Rollouts = closed-loop runs of the current policy in the env (measurement only; the "
              "final checkpoint is always the last step).", fontsize=7, color=C["grey"])
+    kfmt(fig)
     fig.tight_layout(rect=(0, 0.03, 1, 0.95))
     fig.savefig(out)
     plt.close(fig)
@@ -156,6 +167,7 @@ def plot_iql(L, name, out):
     fig.text(0.01, 0.005, "Training uses only the fixed dataset. Validation rollouts (seeds 5000-5049) are measurement "
              "only: not added to the data, not used for gradients or checkpoint choice. Equations: Kostrikov et al. "
              "2021, arXiv:2110.06169.", fontsize=7, color=C["grey"])
+    kfmt(fig)
     fig.tight_layout(rect=(0, 0.02, 1, 0.96))
     fig.savefig(out)
     plt.close(fig)
@@ -165,11 +177,11 @@ def plot_compare(paths, out):
     res = [json.load(open(p)) for p in paths]
     names = [Path(p).stem for p in paths]
     S = [r["summary"] for r in res]
-    fig, axes = plt.subplots(1, 4, figsize=(15, 4))
+    fig, axes = plt.subplots(1, 5, figsize=(19, 4.6))
     x = np.arange(len(names))
     sr = np.array([100 * s["success_rate"] for s in S])
-    lo = sr - np.array([100 * s["success_ci95"][0] for s in S])
-    hi = np.array([100 * s["success_ci95"][1] for s in S]) - sr
+    lo = np.clip(sr - np.array([100 * s["success_ci95"][0] for s in S]), 0, None)
+    hi = np.clip(np.array([100 * s["success_ci95"][1] for s in S]) - sr, 0, None)  # float noise at 100 %
     axes[0].bar(x, sr, yerr=[lo, hi], capsize=4, color=C["green"])
     axes[0].set_title("Success rate (95 % Wilson CI)")
     axes[0].set_ylim(0, 105)
@@ -185,6 +197,16 @@ def plot_compare(paths, out):
     axes[2].set_title("Collision rate (% episodes)")
     axes[3].bar(x, [s["length_mean"] for s in S], color=C["blue"])
     axes[3].set_title("Mean episode length (steps, 300 = time-out)")
+    kinds = [("never_grasped", C["grey"]), ("held_at_end", C["purple"]), ("released_off_wall", C["orange"]),
+             ("released_misaligned", "#d69e2e"), ("dropped", C["red"]), ("other", "#a0aec0")]
+    bottom = np.zeros(len(S))
+    for k, col in kinds:
+        v = np.array([s.get("failures", {}).get(k, 0) for s in S], float)
+        if v.any():
+            axes[4].bar(x, v, bottom=bottom, color=col, label=k.replace("_", " "))
+            bottom += v
+    axes[4].set_title("Failure modes (episodes)")
+    axes[4].legend(fontsize=7)
     for a in axes:
         a.set_xticks(x)
         a.set_xticklabels(names, rotation=20, ha="right")

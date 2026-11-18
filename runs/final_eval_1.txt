@@ -1,0 +1,11 @@
+scripted: success 100.0 % (95% CI 96-100), 122 s
+bc_umi: success 23.0 % (95% CI 16-32), 234 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| scripted | 100 % | 96-100 % | 3.1 | 0.04 | 0 % | 0 % | 171 |
+| bc_umi | 23 % | 16-32 % | 619.4 | 68.56 | 2 % | 0 % | 272 |
+
+failure modes (episodes):
+  scripted           
+  bc_umi             never_grasped 76  held_at_end 1

@@ -306,6 +306,27 @@ def load_transitions(path, reward_terms=None) -> dict:
     return d
 
 
+def load_many(paths, reward_terms=None) -> dict:
+    """Concatenate several transition files (episode_ends re-based); every file must use the same
+    reward definition after optional relabelling. Refuses data that contains test seeds."""
+    parts = [load_transitions(p, reward_terms=reward_terms) for p in paths]
+    out, offset, ends = {}, 0, []
+    for d in parts:
+        check_not_test_seeds(d["episode_seed"])
+        ends.append(d["episode_ends"] + offset)
+        offset += len(d["actions"])
+    for k in ("observations", "actions", "rewards", "next_observations", "terminals", "timeouts",
+              "episode_success", "episode_seed"):
+        out[k] = np.concatenate([d[k] for d in parts])
+    out["episode_ends"] = np.concatenate(ends)
+    included = {tuple(d["meta"]["reward_terms_included"]) for d in parts}
+    if len(included) > 1:
+        raise ValueError(f"files use different reward definitions {included}; pass reward_terms to relabel")
+    out["reward_terms_included"] = list(included.pop())
+    out["sources"] = [str(p) for p in paths]
+    return out
+
+
 def episode_slices(episode_ends: np.ndarray) -> list[slice]:
     starts = np.concatenate([[0], episode_ends[:-1]])
     return [slice(int(a), int(b)) for a, b in zip(starts, episode_ends)]

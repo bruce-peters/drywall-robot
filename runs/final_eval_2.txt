@@ -1,0 +1,11 @@
+bc_umi_h8: success 80.0 % (95% CI 71-87), 84 s
+bc_umi_sim_h8: success 69.0 % (95% CI 59-77), 170 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| bc_umi_h8 | 80 % | 71-87 % | 132.7 | 14.55 | 9 % | 0 % | 196 |
+| bc_umi_sim_h8 | 69 % | 59-77 % | 217.5 | 24.40 | 2 % | 0 % | 212 |
+
+failure modes (episodes):
+  bc_umi_h8          never_grasped 16  released_off_wall 4
+  bc_umi_sim_h8      never_grasped 27  released_off_wall 4

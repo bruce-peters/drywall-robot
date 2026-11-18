@@ -16,11 +16,19 @@
   "length_success_mean": 170.87,
   "max_wall_force_mean": 14.031682632887291,
   "return_mean": -26.078852001764822,
+  "failures": {
+   "dropped": 0,
+   "never_grasped": 0,
+   "held_at_end": 0,
+   "released_off_wall": 0,
+   "released_misaligned": 0,
+   "other": 0
+  },
   "success_ci95": [
    0.9630051925239981,
    0.9999999999999999
   ],
-  "seconds": 70.27447319030762
+  "seconds": 122.10671424865723
  },
  "episodes": [
   {
@@ -33,7 +41,11 @@
    "collision": false,
    "max_wall_force": 12.548109394700365,
    "length": 169,
-   "return": -22.188188458796517
+   "return": -22.188188458796517,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.33690986962331415,
+   "failure": null
   },
   {
    "seed": 10001,
@@ -45,7 +57,11 @@
    "collision": false,
    "max_wall_force": 40.08239367662952,
    "length": 169,
-   "return": -19.70246283928833
+   "return": -19.70246283928833,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.002170299902126693,
+   "failure": null
   },
   {
    "seed": 10002,
@@ -57,7 +73,11 @@
    "collision": false,
    "max_wall_force": 18.76790777561461,
    "length": 174,
-   "return": -26.12243757425918
+   "return": -26.12243757425918,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3616707469520363,
+   "failure": null
   },
   {
    "seed": 10003,
@@ -69,7 +89,11 @@
    "collision": false,
    "max_wall_force": 7.9174548181610245,
    "length": 169,
-   "return": -20.194541526730106
+   "return": -20.194541526730106,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.009280439680403596,
+   "failure": null
   },
   {
    "seed": 10004,
@@ -81,7 +105,11 @@
    "collision": false,
    "max_wall_force": 9.538666596325118,
    "length": 171,
-   "return": -22.972083182122333
+   "return": -22.972083182122333,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.013693299470207696,
+   "failure": null
   },
   {
    "seed": 10005,
@@ -93,7 +121,11 @@
    "collision": false,
    "max_wall_force": 14.56235507183128,
    "length": 177,
-   "return": -31.285028925738615
+   "return": -31.285028925738615,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.001431897644454949,
+   "failure": null
   },
   {
    "seed": 10006,
@@ -105,7 +137,11 @@
    "collision": false,
    "max_wall_force": 9.389845984257416,
    "length": 169,
-   "return": -26.152906074305193
+   "return": -26.152906074305193,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.058688012768093316,
+   "failure": null
   },
   {
    "seed": 10007,
@@ -117,7 +153,11 @@
    "collision": false,
    "max_wall_force": 16.002875966001195,
    "length": 175,
-   "return": -30.62519824782339
+   "return": -30.62519824782339,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3508150203832549,
+   "failure": null
   },
   {
    "seed": 10008,
@@ -129,7 +169,11 @@
    "collision": false,
    "max_wall_force": 3.631246457846651,
    "length": 170,
-   "return": -29.4658090433375
+   "return": -29.4658090433375,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.30993425419933995,
+   "failure": null
   },
   {
    "seed": 10009,
@@ -141,7 +185,11 @@
    "collision": false,
    "max_wall_force": 9.202740381112395,
    "length": 170,
-   "return": -25.831225209503003
+   "return": -25.831225209503003,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.016423934209863766,
+   "failure": null
   },
   {
    "seed": 10010,
@@ -153,7 +201,11 @@
    "collision": false,
    "max_wall_force": 11.272583800051454,
    "length": 179,
-   "return": -41.543689958127814
+   "return": -41.543689958127814,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.02306725503975482,
+   "failure": null
   },
   {
    "seed": 10011,
@@ -165,7 +217,11 @@
    "collision": false,
    "max_wall_force": 11.732587126074158,
    "length": 167,
-   "return": -19.64312484001968
+   "return": -19.64312484001968,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3368939465673293,
+   "failure": null
   },
   {
    "seed": 10012,
@@ -177,7 +233,11 @@
    "collision": false,
    "max_wall_force": 10.8542244655278,
    "length": 172,
-   "return": -28.606496505590698
+   "return": -28.606496505590698,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.02452927337348587,
+   "failure": null
   },
   {
    "seed": 10013,
@@ -189,7 +249,11 @@
    "collision": false,
    "max_wall_force": 15.62593295484971,
    "length": 165,
-   "return": -23.499196103789856
+   "return": -23.499196103789856,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.31780198679576266,
+   "failure": null
   },
   {
    "seed": 10014,
@@ -201,7 +265,11 @@
    "collision": false,
    "max_wall_force": 18.097257442345466,
    "length": 170,
-   "return": -24.062904685899753
+   "return": -24.062904685899753,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.36196343317473895,
+   "failure": null
   },
   {
    "seed": 10015,
@@ -213,7 +281,11 @@
    "collision": false,
    "max_wall_force": 11.206437953121718,
    "length": 173,
-   "return": -24.715378567557494
+   "return": -24.715378567557494,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.030925161182859817,
+   "failure": null
   },
   {
    "seed": 10016,
@@ -225,7 +297,11 @@
    "collision": false,
    "max_wall_force": 16.354779043467587,
    "length": 174,
-   "return": -27.6346605972023
+   "return": -27.6346605972023,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.364641799287968,
+   "failure": null
   },
   {
    "seed": 10017,
@@ -237,7 +313,11 @@
    "collision": false,
    "max_wall_force": 11.995711992611845,
    "length": 174,
-   "return": -26.104828991664178
+   "return": -26.104828991664178,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.002392854415833589,
+   "failure": null
   },
   {
    "seed": 10018,
@@ -249,7 +329,11 @@
    "collision": false,
    "max_wall_force": 17.805006145423153,
    "length": 177,
-   "return": -32.276872312974646
+   "return": -32.276872312974646,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.35729600792877564,
+   "failure": null
   },
   {
    "seed": 10019,
@@ -261,7 +345,11 @@
    "collision": false,
    "max_wall_force": 40.89951514140232,
    "length": 170,
-   "return": -24.108190055159042
+   "return": -24.108190055159042,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.0056964919379343115,
+   "failure": null
   },
   {
    "seed": 10020,
@@ -273,7 +361,11 @@
    "collision": false,
    "max_wall_force": 11.608297889146654,
    "length": 166,
-   "return": -17.797653132480974
+   "return": -17.797653132480974,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3238803533344159,
+   "failure": null
   },
   {
    "seed": 10021,
@@ -285,7 +377,11 @@
    "collision": false,
    "max_wall_force": 14.969959045801376,
    "length": 173,
-   "return": -32.19125813664397
+   "return": -32.19125813664397,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3440154545719665,
+   "failure": null
   },
   {
    "seed": 10022,
@@ -297,7 +393,11 @@
    "collision": false,
    "max_wall_force": 17.20458744790743,
    "length": 170,
-   "return": -16.75530552435346
+   "return": -16.75530552435346,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.35620764540833516,
+   "failure": null
   },
   {
    "seed": 10023,
@@ -309,7 +409,11 @@
    "collision": false,
    "max_wall_force": 13.932898752107237,
    "length": 167,
-   "return": -23.303857291876966
+   "return": -23.303857291876966,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.34963219504180465,
+   "failure": null
   },
   {
    "seed": 10024,
@@ -321,7 +425,11 @@
    "collision": false,
    "max_wall_force": 20.673955366448048,
    "length": 174,
-   "return": -28.353092538436456
+   "return": -28.353092538436456,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3567677293924154,
+   "failure": null
   },
   {
    "seed": 10025,
@@ -333,7 +441,11 @@
    "collision": false,
    "max_wall_force": 10.885883401570656,
    "length": 164,
-   "return": -16.431225403449574
+   "return": -16.431225403449574,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.026617157557362603,
+   "failure": null
   },
   {
    "seed": 10026,
@@ -345,7 +457,11 @@
    "collision": false,
    "max_wall_force": 8.787206983100418,
    "length": 181,
-   "return": -30.52963881203567
+   "return": -30.52963881203567,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.02988911413459583,
+   "failure": null
   },
   {
    "seed": 10027,
@@ -357,7 +473,11 @@
    "collision": false,
    "max_wall_force": 14.296587529499467,
    "length": 170,
-   "return": -33.58557309290296
+   "return": -33.58557309290296,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.30691832406171127,
+   "failure": null
   },
   {
    "seed": 10028,
@@ -369,7 +489,11 @@
    "collision": false,
    "max_wall_force": 15.402144454602897,
    "length": 170,
-   "return": -19.07545701061356
+   "return": -19.07545701061356,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3356520640704907,
+   "failure": null
   },
   {
    "seed": 10029,
@@ -381,7 +505,11 @@
    "collision": false,
    "max_wall_force": 8.336656361163215,
    "length": 168,
-   "return": -25.23506769374987
+   "return": -25.23506769374987,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.09163929950273263,
+   "failure": null
   },
   {
    "seed": 10030,
@@ -393,7 +521,11 @@
    "collision": false,
    "max_wall_force": 32.29930359982546,
    "length": 171,
-   "return": -31.295882518107973
+   "return": -31.295882518107973,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.00017943761076999465,
+   "failure": null
   },
   {
    "seed": 10031,
@@ -405,7 +537,11 @@
    "collision": false,
    "max_wall_force": 6.602917038489152,
    "length": 171,
-   "return": -30.401715132012015
+   "return": -30.401715132012015,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.02604094592173478,
+   "failure": null
   },
   {
    "seed": 10032,
@@ -417,7 +553,11 @@
    "collision": false,
    "max_wall_force": 17.37890328531178,
    "length": 175,
-   "return": -31.361274772730255
+   "return": -31.361274772730255,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.34006759646598717,
+   "failure": null
   },
   {
    "seed": 10033,
@@ -429,7 +569,11 @@
    "collision": false,
    "max_wall_force": 9.303276553131425,
    "length": 172,
-   "return": -28.811206974768055
+   "return": -28.811206974768055,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03512034832642286,
+   "failure": null
   },
   {
    "seed": 10034,
@@ -441,7 +585,11 @@
    "collision": false,
    "max_wall_force": 13.69612240823258,
    "length": 171,
-   "return": -22.772781358991807
+   "return": -22.772781358991807,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3175667503035884,
+   "failure": null
   },
   {
    "seed": 10035,
@@ -453,7 +601,11 @@
    "collision": false,
    "max_wall_force": 10.039744967235665,
    "length": 172,
-   "return": -28.150638320656782
+   "return": -28.150638320656782,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.04557498543455995,
+   "failure": null
   },
   {
    "seed": 10036,
@@ -465,7 +617,11 @@
    "collision": false,
    "max_wall_force": 13.328620952691947,
    "length": 177,
-   "return": -30.66899798588757
+   "return": -30.66899798588757,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.0173987618813376,
+   "failure": null
   },
   {
    "seed": 10037,
@@ -477,7 +633,11 @@
    "collision": false,
    "max_wall_force": 7.931535593031472,
    "length": 177,
-   "return": -36.61638578983127
+   "return": -36.61638578983127,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.047746439000739826,
+   "failure": null
   },
   {
    "seed": 10038,
@@ -489,7 +649,11 @@
    "collision": false,
    "max_wall_force": 18.04202126997721,
    "length": 171,
-   "return": -23.04122324377677
+   "return": -23.04122324377677,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3459916510208938,
+   "failure": null
   },
   {
    "seed": 10039,
@@ -501,7 +665,11 @@
    "collision": false,
    "max_wall_force": 9.080226431174983,
    "length": 173,
-   "return": -32.60847085190588
+   "return": -32.60847085190588,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03814014997371995,
+   "failure": null
   },
   {
    "seed": 10040,
@@ -513,7 +681,11 @@
    "collision": false,
    "max_wall_force": 12.565037759549861,
    "length": 167,
-   "return": -22.31359435585793
+   "return": -22.31359435585793,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3373225841859506,
+   "failure": null
   },
   {
    "seed": 10041,
@@ -525,7 +697,11 @@
    "collision": false,
    "max_wall_force": 12.063650008127915,
    "length": 180,
-   "return": -31.50504639291441
+   "return": -31.50504639291441,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.0189603956711748,
+   "failure": null
   },
   {
    "seed": 10042,
@@ -537,7 +713,11 @@
    "collision": false,
    "max_wall_force": 13.266366183591776,
    "length": 170,
-   "return": -22.44267563200009
+   "return": -22.44267563200009,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3571749536794844,
+   "failure": null
   },
   {
    "seed": 10043,
@@ -549,7 +729,11 @@
    "collision": false,
    "max_wall_force": 12.29130959059274,
    "length": 174,
-   "return": -24.29999136885783
+   "return": -24.29999136885783,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.019491783047609342,
+   "failure": null
   },
   {
    "seed": 10044,
@@ -561,7 +745,11 @@
    "collision": false,
    "max_wall_force": 12.151338639034782,
    "length": 169,
-   "return": -19.98369482095933
+   "return": -19.98369482095933,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.322863840330867,
+   "failure": null
   },
   {
    "seed": 10045,
@@ -573,7 +761,11 @@
    "collision": false,
    "max_wall_force": 5.979312350392594,
    "length": 165,
-   "return": -15.504144187040765
+   "return": -15.504144187040765,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.026977502902258973,
+   "failure": null
   },
   {
    "seed": 10046,
@@ -585,7 +777,11 @@
    "collision": false,
    "max_wall_force": 2.7029288477173146,
    "length": 174,
-   "return": -31.75333297499043
+   "return": -31.75333297499043,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.1693361407065774,
+   "failure": null
   },
   {
    "seed": 10047,
@@ -597,7 +793,11 @@
    "collision": false,
    "max_wall_force": 12.547988364280867,
    "length": 172,
-   "return": -27.21732818985035
+   "return": -27.21732818985035,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.32050443356779196,
+   "failure": null
   },
   {
    "seed": 10048,
@@ -609,7 +809,11 @@
    "collision": false,
    "max_wall_force": 12.687866066957541,
    "length": 174,
-   "return": -33.596968696075464
+   "return": -33.596968696075464,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3386109013155947,
+   "failure": null
   },
   {
    "seed": 10049,
@@ -621,7 +825,11 @@
    "collision": false,
    "max_wall_force": 10.86491584513855,
    "length": 169,
-   "return": -23.71584176427062
+   "return": -23.71584176427062,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03310431636893707,
+   "failure": null
   },
   {
    "seed": 10050,
@@ -633,7 +841,11 @@
    "collision": false,
    "max_wall_force": 10.977957161495832,
    "length": 171,
-   "return": -27.999962149740796
+   "return": -27.999962149740796,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.33640953996516565,
+   "failure": null
   },
   {
    "seed": 10051,
@@ -645,7 +857,11 @@
    "collision": false,
    "max_wall_force": 8.723953950096027,
    "length": 171,
-   "return": -28.092096513092457
+   "return": -28.092096513092457,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.06857764728107618,
+   "failure": null
   },
   {
    "seed": 10052,
@@ -657,7 +873,11 @@
    "collision": false,
    "max_wall_force": 9.054998153654228,
    "length": 170,
-   "return": -21.422928057965052
+   "return": -21.422928057965052,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03515078972338159,
+   "failure": null
   },
   {
    "seed": 10053,
@@ -669,7 +889,11 @@
    "collision": false,
    "max_wall_force": 19.172672416164918,
    "length": 170,
-   "return": -19.704857372030048
+   "return": -19.704857372030048,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.36513996497111734,
+   "failure": null
   },
   {
    "seed": 10054,
@@ -681,7 +905,11 @@
    "collision": false,
    "max_wall_force": 10.058600759538752,
    "length": 176,
-   "return": -35.19971816104689
+   "return": -35.19971816104689,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.01093931721563024,
+   "failure": null
   },
   {
    "seed": 10055,
@@ -693,7 +921,11 @@
    "collision": false,
    "max_wall_force": 12.314371717784736,
    "length": 175,
-   "return": -28.147762382283773
+   "return": -28.147762382283773,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.2812266858257528,
+   "failure": null
   },
   {
    "seed": 10056,
@@ -705,7 +937,11 @@
    "collision": false,
    "max_wall_force": 12.115074728432297,
    "length": 172,
-   "return": -29.41945604749486
+   "return": -29.41945604749486,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.25205845637421564,
+   "failure": null
   },
   {
    "seed": 10057,
@@ -717,7 +953,11 @@
    "collision": false,
    "max_wall_force": 11.90729807746689,
    "length": 170,
-   "return": -24.911755080708872
+   "return": -24.911755080708872,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3237247026417478,
+   "failure": null
   },
   {
    "seed": 10058,
@@ -729,7 +969,11 @@
    "collision": false,
    "max_wall_force": 44.388132791238625,
    "length": 177,
-   "return": -33.90115700038298
+   "return": -33.90115700038298,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.004147481643901329,
+   "failure": null
   },
   {
    "seed": 10059,
@@ -741,7 +985,11 @@
    "collision": false,
    "max_wall_force": 11.5425795131033,
    "length": 163,
-   "return": -21.670256981582042
+   "return": -21.670256981582042,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.016170607740950693,
+   "failure": null
   },
   {
    "seed": 10060,
@@ -753,7 +1001,11 @@
    "collision": false,
    "max_wall_force": 9.82452825350925,
    "length": 167,
-   "return": -20.735591868338688
+   "return": -20.735591868338688,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.041304984273682344,
+   "failure": null
   },
   {
    "seed": 10061,
@@ -765,7 +1017,11 @@
    "collision": false,
    "max_wall_force": 9.597010779719714,
    "length": 170,
-   "return": -26.33867014392402
+   "return": -26.33867014392402,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.028753211585352826,
+   "failure": null
   },
   {
    "seed": 10062,
@@ -777,7 +1033,11 @@
    "collision": false,
    "max_wall_force": 10.95736203757436,
    "length": 168,
-   "return": -24.992660596097068
+   "return": -24.992660596097068,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03266987165184698,
+   "failure": null
   },
   {
    "seed": 10063,
@@ -789,7 +1049,11 @@
    "collision": false,
    "max_wall_force": 6.688913966404663,
    "length": 174,
-   "return": -35.875884931888294
+   "return": -35.875884931888294,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03895763856065492,
+   "failure": null
   },
   {
    "seed": 10064,
@@ -801,7 +1065,11 @@
    "collision": false,
    "max_wall_force": 7.234490918949632,
    "length": 167,
-   "return": -18.747716328292412
+   "return": -18.747716328292412,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.014751613852892474,
+   "failure": null
   },
   {
    "seed": 10065,
@@ -813,7 +1081,11 @@
    "collision": false,
    "max_wall_force": 15.679908353562727,
    "length": 168,
-   "return": -29.096972852380844
+   "return": -29.096972852380844,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3177275304833138,
+   "failure": null
   },
   {
    "seed": 10066,
@@ -825,7 +1097,11 @@
    "collision": false,
    "max_wall_force": 11.296561272267219,
    "length": 170,
-   "return": -27.779163408790325
+   "return": -27.779163408790325,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.04522614966717686,
+   "failure": null
   },
   {
    "seed": 10067,
@@ -837,7 +1113,11 @@
    "collision": false,
    "max_wall_force": 12.867913698138535,
    "length": 168,
-   "return": -21.902696206714893
+   "return": -21.902696206714893,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3183064542592317,
+   "failure": null
   },
   {
    "seed": 10068,
@@ -849,7 +1129,11 @@
    "collision": false,
    "max_wall_force": 5.289582350371594,
    "length": 170,
-   "return": -23.471004858916316
+   "return": -23.471004858916316,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.24902526476344722,
+   "failure": null
   },
   {
    "seed": 10069,
@@ -861,7 +1145,11 @@
    "collision": false,
    "max_wall_force": 16.84708108000757,
    "length": 170,
-   "return": -18.39734540935885
+   "return": -18.39734540935885,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3613560453534781,
+   "failure": null
   },
   {
    "seed": 10070,
@@ -873,7 +1161,11 @@
    "collision": false,
    "max_wall_force": 12.091104379904701,
    "length": 166,
-   "return": -18.387974018869997
+   "return": -18.387974018869997,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.31574731012773416,
+   "failure": null
   },
   {
    "seed": 10071,
@@ -885,7 +1177,11 @@
    "collision": false,
    "max_wall_force": 14.476625012067856,
    "length": 168,
-   "return": -24.729756347115213
+   "return": -24.729756347115213,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.35978731106522943,
+   "failure": null
   },
   {
    "seed": 10072,
@@ -897,7 +1193,11 @@
    "collision": false,
    "max_wall_force": 14.906186864371387,
    "length": 168,
-   "return": -23.117938891285277
+   "return": -23.117938891285277,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3513982494121048,
+   "failure": null
   },
   {
    "seed": 10073,
@@ -909,7 +1209,11 @@
    "collision": false,
    "max_wall_force": 8.114961702889747,
    "length": 171,
-   "return": -26.234275023869074
+   "return": -26.234275023869074,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.03651593813647214,
+   "failure": null
   },
   {
    "seed": 10074,
@@ -921,7 +1225,11 @@
    "collision": false,
    "max_wall_force": 43.58520001789835,
    "length": 168,
-   "return": -20.11802405485858
+   "return": -20.11802405485858,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.0025382233891368955,
+   "failure": null
   },
   {
    "seed": 10075,
@@ -933,7 +1241,11 @@
    "collision": false,
    "max_wall_force": 38.76367535855699,
    "length": 168,
-   "return": -25.604017292594065
+   "return": -25.604017292594065,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.0022715295304731598,
+   "failure": null
   },
   {
    "seed": 10076,
@@ -945,7 +1257,11 @@
    "collision": false,
    "max_wall_force": 8.694406035389846,
    "length": 168,
-   "return": -24.39595256466366
+   "return": -24.39595256466366,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.004851173210917992,
+   "failure": null
   },
   {
    "seed": 10077,
@@ -957,7 +1273,11 @@
    "collision": false,
    "max_wall_force": 9.310250314542415,
    "length": 172,
-   "return": -31.331071448438266
+   "return": -31.331071448438266,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.003856555947368001,
+   "failure": null
   },
   {
    "seed": 10078,
@@ -969,7 +1289,11 @@
    "collision": false,
    "max_wall_force": 6.472033950435943,
    "length": 168,
-   "return": -22.714954129953895
+   "return": -22.714954129953895,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.04728790841113107,
+   "failure": null
   },
   {
    "seed": 10079,
@@ -981,7 +1305,11 @@
    "collision": false,
    "max_wall_force": 9.76374694525585,
    "length": 169,
-   "return": -23.637669860942424
+   "return": -23.637669860942424,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.014244166752219732,
+   "failure": null
   },
   {
    "seed": 10080,
@@ -993,7 +1321,11 @@
    "collision": false,
    "max_wall_force": 7.854453620205611,
    "length": 171,
-   "return": -29.820636328724802
+   "return": -29.820636328724802,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.025017207954669548,
+   "failure": null
   },
   {
    "seed": 10081,
@@ -1005,7 +1337,11 @@
    "collision": false,
    "max_wall_force": 15.535064249185304,
    "length": 169,
-   "return": -17.929977072094488
+   "return": -17.929977072094488,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.29868326346071944,
+   "failure": null
   },
   {
    "seed": 10082,
@@ -1017,7 +1353,11 @@
    "collision": false,
    "max_wall_force": 8.694367394297814,
    "length": 169,
-   "return": -24.239331532699794
+   "return": -24.239331532699794,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.040746641061462086,
+   "failure": null
   },
   {
    "seed": 10083,
@@ -1029,7 +1369,11 @@
    "collision": false,
    "max_wall_force": 16.814452344791242,
    "length": 172,
-   "return": -20.8530183002714
+   "return": -20.8530183002714,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3339130220509912,
+   "failure": null
   },
   {
    "seed": 10084,
@@ -1041,7 +1385,11 @@
    "collision": false,
    "max_wall_force": 14.841468328707135,
    "length": 171,
-   "return": -27.776710530741724
+   "return": -27.776710530741724,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3278642919009034,
+   "failure": null
   },
   {
    "seed": 10085,
@@ -1053,7 +1401,11 @@
    "collision": false,
    "max_wall_force": 9.96430634350846,
    "length": 170,
-   "return": -23.638902485116887
+   "return": -23.638902485116887,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.6226507609446985,
+   "failure": null
   },
   {
    "seed": 10086,
@@ -1065,7 +1417,11 @@
    "collision": false,
    "max_wall_force": 12.736228647582353,
    "length": 171,
-   "return": -23.84634829549664
+   "return": -23.84634829549664,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.34581778418618647,
+   "failure": null
   },
   {
    "seed": 10087,
@@ -1077,7 +1433,11 @@
    "collision": false,
    "max_wall_force": 12.601090503972367,
    "length": 173,
-   "return": -24.396260811046034
+   "return": -24.396260811046034,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3062166430806146,
+   "failure": null
   },
   {
    "seed": 10088,
@@ -1089,7 +1449,11 @@
    "collision": false,
    "max_wall_force": 38.926615304170085,
    "length": 170,
-   "return": -28.179813601845325
+   "return": -28.179813601845325,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.003714826682710281,
+   "failure": null
   },
   {
    "seed": 10089,
@@ -1101,7 +1465,11 @@
    "collision": false,
    "max_wall_force": 12.070171815981091,
    "length": 166,
-   "return": -19.231273326755044
+   "return": -19.231273326755044,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.34828466901737354,
+   "failure": null
   },
   {
    "seed": 10090,
@@ -1113,7 +1481,11 @@
    "collision": false,
    "max_wall_force": 8.902199396718242,
    "length": 173,
-   "return": -33.51484524724428
+   "return": -33.51484524724428,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.032648712700256155,
+   "failure": null
   },
   {
    "seed": 10091,
@@ -1125,7 +1497,11 @@
    "collision": false,
    "max_wall_force": 6.201026380296378,
    "length": 174,
-   "return": -35.62604697434304
+   "return": -35.62604697434304,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.02429593819941456,
+   "failure": null
   },
   {
    "seed": 10092,
@@ -1137,7 +1513,11 @@
    "collision": false,
    "max_wall_force": 7.69969372275571,
    "length": 168,
-   "return": -25.959057908890557
+   "return": -25.959057908890557,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.5763628372861261,
+   "failure": null
   },
   {
    "seed": 10093,
@@ -1149,7 +1529,11 @@
    "collision": false,
    "max_wall_force": 17.780314988819306,
    "length": 164,
-   "return": -22.508355883407944
+   "return": -22.508355883407944,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.34853452405025903,
+   "failure": null
   },
   {
    "seed": 10094,
@@ -1161,7 +1545,11 @@
    "collision": false,
    "max_wall_force": 48.109881912331375,
    "length": 174,
-   "return": -33.95527754138433
+   "return": -33.95527754138433,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": -0.0036998766329565673,
+   "failure": null
   },
   {
    "seed": 10095,
@@ -1173,7 +1561,11 @@
    "collision": false,
    "max_wall_force": 9.77513017959653,
    "length": 169,
-   "return": -25.966344500427567
+   "return": -25.966344500427567,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3163251808732115,
+   "failure": null
   },
   {
    "seed": 10096,
@@ -1185,7 +1577,11 @@
    "collision": false,
    "max_wall_force": 6.932869948678118,
    "length": 174,
-   "return": -33.104128503677686
+   "return": -33.104128503677686,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.041686337903912296,
+   "failure": null
   },
   {
    "seed": 10097,
@@ -1197,7 +1593,11 @@
    "collision": false,
    "max_wall_force": 9.879975650299642,
    "length": 170,
-   "return": -18.148142149317195
+   "return": -18.148142149317195,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.04212361970512556,
+   "failure": null
   },
   {
    "seed": 10098,
@@ -1209,7 +1609,11 @@
    "collision": false,
    "max_wall_force": 16.066334561085927,
    "length": 176,
-   "return": -33.198310085705
+   "return": -33.198310085705,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.3388509286904595,
+   "failure": null
   },
   {
    "seed": 10099,
@@ -1221,7 +1625,11 @@
    "collision": false,
    "max_wall_force": 10.656240261764342,
    "length": 169,
-   "return": -29.85858144575394
+   "return": -29.85858144575394,
+   "ever_attached": true,
+   "attached_at_end": false,
+   "wall_dist_mm": 0.48962032036770076,
+   "failure": null
   }
  ]
 }

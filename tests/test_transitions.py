@@ -160,3 +160,26 @@ def test_save_load_roundtrip_and_relabel(tmp_path):
     np.testing.assert_allclose(d["rewards"], d["reward/pos_error"] + d["reward/collision"] + d["reward/success"])
     d2 = load_transitions(path, reward_terms=UMI_REWARD_TERMS)
     np.testing.assert_allclose(d2["rewards"], d["reward/pos_error"] + d["reward/success"])
+
+
+def test_load_many_concatenates_and_checks_reward_definitions(tmp_path):
+    from drywall_env.transitions import load_many
+
+    rng = np.random.default_rng(0)
+
+    def ep(T, seed):
+        terms = {k: rng.normal(size=T).astype(np.float32) for k in ("pos_error", "collision")}
+        return {"observations": rng.normal(size=(T + 1, STATE_DIM)).astype(np.float32),
+                "actions": rng.uniform(-1, 1, (T, 7)).astype(np.float32), "reward_terms": terms,
+                "terminal": True, "success": True, "seed": seed}
+
+    save_transitions(tmp_path / "a.npz", [ep(4, 0)], {"reward_terms_included": ["pos_error"]})
+    save_transitions(tmp_path / "b.npz", [ep(3, 1), ep(2, 2)], {"reward_terms_included": ["pos_error", "collision"]})
+    with pytest.raises(ValueError):
+        load_many([tmp_path / "a.npz", tmp_path / "b.npz"])  # different reward definitions
+    d = load_many([tmp_path / "a.npz", tmp_path / "b.npz"], reward_terms=["pos_error"])
+    assert d["episode_ends"].tolist() == [4, 7, 9] and len(d["actions"]) == 9
+    np.testing.assert_allclose(d["rewards"][4:], load_transitions(tmp_path / "b.npz")["reward/pos_error"])
+    save_transitions(tmp_path / "t.npz", [ep(2, TEST_SEEDS[3])], {})
+    with pytest.raises(ValueError):
+        load_many([tmp_path / "t.npz"])  # test seeds are refused

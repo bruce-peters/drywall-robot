@@ -78,6 +78,8 @@ def main():
     ap.add_argument("--n", type=int, default=len(TEST_SEEDS), help="number of test seeds (from 10000)")
     ap.add_argument("--video", default=None, help="prefix for success / failure videos (single policy)")
     ap.add_argument("--name", default=None, help="display name in the video label")
+    ap.add_argument("--failure-kind", default=None,
+                    help="failure video shows the first episode of this mode (e.g. released_off_wall)")
     ap.add_argument("--results-dir", default="results")
     args = ap.parse_args()
 
@@ -100,7 +102,8 @@ def main():
         if args.video:
             label = args.name or LABELS.get(name, name)
             for kind in ("success", "failure"):
-                pick = [r["seed"] for r in rows if r["success"] == (kind == "success")]
+                pick = [r["seed"] for r in rows if r["success"] == (kind == "success")
+                        and (kind == "success" or args.failure_kind in (None, r.get("failure")))]
                 if pick:
                     save_video(pol, pick[0], f"{args.video}_{kind}.mp4", label)
                     print(f"  saved {args.video}_{kind}.mp4 (seed {pick[0]})")
@@ -112,6 +115,9 @@ def main():
         print(f"| {name} | {100 * s['success_rate']:.0f} % | {100 * s['success_ci95'][0]:.0f}-"
               f"{100 * s['success_ci95'][1]:.0f} % | {s['pos_error_mm_mean']:.1f} | {s['ori_error_deg_mean']:.2f} | "
               f"{100 * s['collision_rate']:.0f} % | {100 * s['drop_rate']:.0f} % | {s['length_mean']:.0f} |")
+    print("\nfailure modes (episodes):")
+    for name, s in table:
+        print(f"  {name:<18} " + "  ".join(f"{k} {v}" for k, v in s.get("failures", {}).items() if v))
 
 
 if __name__ == "__main__":

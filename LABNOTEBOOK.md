@@ -645,3 +645,78 @@ train_iql.py (C.B) → comparison (C.C).
   (small labelled clips are part of the submission); `data/` stays ignored (to discuss with the user).
 - Single-step BC on the test seeds: **23 % (CI 16–32)**, 619 mm / 68.6°, 2 % collisions, 272 steps. Mostly
   never grasps.
+
+## 2026-11-17 — Part B committed; Part C control run
+
+- **Commit `76868be`** "Part B: …" as the user (author and committer Bruce Peters, no co-author trailer;
+  checked with `git log -1`). It includes the Part A wrap-up and the other chat's B.A work, which had never
+  been committed. Part C files (generator, IQL, test_iql.py, IQL runs) were left out of it.
+- The IQL expectile test moved to `tests/test_iql.py` so the Part B commit doesn't import train_iql.py.
+- **[DECISION]** (added during the overnight run, within the approved plan's "honest comparison") **Control
+  run `bc_umi_sim_h8`:** filtered BC with the same network and settings on the *successful* episodes of
+  UMI + sim data (943 episodes: 849 train / 94 held out, 162,488 transitions). It separates "IQL helps because
+  of RL (advantage weighting, use of failures)" from "IQL helps because it saw more data".
+- `transitions.load_many(paths, reward_terms)`: concatenates files, re-bases episode_ends, refuses test
+  seeds and mixed reward definitions unless relabelled. Used by both train_bc.py (`--data` takes several
+  files, rewards relabelled to the UMI subset; BC ignores them anyway) and train_iql.py (replaces its local
+  loader). New test `test_load_many_concatenates_and_checks_reward_definitions`.
+- IQL validation at 20k / 200k steps: sim β3 38 %, sim β10 30 %, umi+sim β3 28 %, umi+sim β10 26 %.
+- **Control `bc_umi_sim_h8`** (filtered BC, UMI + sim successes): validation 40 / 64 / 74 / 74 / 76 / 74 % at
+  5k–30k. **Test: 69 % (CI 59–77)**, 217 mm / 24.4°, 2 % collisions, 212 steps. *Lower* than BC on the UMI
+  demos alone (80 %): the extra sim successes come from noisier behaviour (action noise up to 0.3, BC
+  rollouts), so more data of lower quality hurts plain BC.
+- **Automatic failure classification** (`evaluation.classify_failure`), from each episode's end state:
+  dropped / never_grasped / held_at_end / released_off_wall / released_misaligned / other. Each episode now
+  also records `ever_attached`, `attached_at_end` and `wall_dist_mm`; `summarize` counts the modes;
+  eval_policy prints them; the comparison chart gets a stacked failure-mode bar. Checked against the
+  hand-traced BC episodes: 10000 → success, 10010 → never_grasped, 10038 → released_off_wall (7.2 mm). The
+  final comparison re-runs every policy so all results have these fields.
+- Validation noise: with 50 episodes a single validation point has a standard error of about ±7 % (95 %
+  interval about ±14 %), which explains IQL jumps such as sim β10 78 % → 54 % between 40k and 60k. The final
+  numbers use 100 test episodes with Wilson intervals.
+
+## 2026-11-17/18 — Part C: offline data, IQL, comparison
+
+### C.A data
+- `python scripts/generate_offline_data.py --bc checkpoints/bc_umi_h8.pt` (22 worker processes, 115 s):
+  1,000 episodes on seeds 1000–1999, 234,717 transitions, 44.4 MB.
+  - Behaviour per episode from the seed: scripted (477 episodes, 55.3 % success, 2.5 % drops, collisions in
+    20 % of episodes) or noisy BC (523 episodes, 58.9 %, 5.9 % drops, collisions in 63 %).
+  - Action noise std ~ U[0, 0.3] on both. Full env reward, terms stored separately. Overall 57.2 % success.
+
+### C.B IQL (scripts/train_iql.py, from scratch; equations and citations in the docstring)
+- Four runs, 200k steps each, in parallel on the RTX 4070: about 57 steps/s each, about 62 min each including
+  10 × 50 validation rollouts.
+  - Same actor as Part B (chunk 8 / execute 4), τ 0.7, γ 0.99, reward × 0.1.
+  - β ∈ {3, 10} × data ∈ {sim (full reward), UMI + sim (UMI-subset reward, both relabelled)}.
+- As expected, β does not change the critics (identical Q/V curves for β 3 and 10).
+- Validation success (50 episodes, seeds 5000–5049) swings a lot, e.g. umi+sim β10 at 100k–200k:
+  82 / 86 / 94 / 76 / 70 / 68 %. Final step only (no checkpoint picking).
+- **Value diagnostics:** mean discounted return-to-go of the data (×0.1): UMI + sim −1.03 (successes +1.35,
+  failures −3.69); sim −2.29. Learned mean V: UMI + sim rose to ≈ +1.0 at 45k and drifted down to ≈ +0.15 at
+  200k; sim ≈ −1.3. V above the data mean is expected (upper expectile ≈ a better-than-behaviour policy), but
+  the steady drift means **the critic had not converged at 200k** (the paper uses 1M).
+
+### C.C Final evaluation (test seeds 10000–10099, 100 episodes each, all policies re-run with failure modes)
+- scripted 100 % (96–100). bc_umi 23 % (16–32; never grasped 76).
+- **bc_umi_h8 80 % (71–87)**: never grasped 16, released off wall 4; 9 % collisions.
+- bc_umi_sim_h8 69 % (59–77): never grasped 27, off wall 4; 2 % collisions.
+- iql_sim_b3 58 % (48–67): grasp 14, held 12, off wall 14, misaligned 2; 22 % collisions.
+- iql_sim_b10 61 % (51–70): grasp 5, held 10, off wall 21, misaligned 3; 14 %.
+- **iql_umi_sim_b3 71 % (61–79)**: grasp 9, held 6, off wall 14; 8 %.
+- iql_umi_sim_b10 68 % (58–76): grasp 3, held 6, off wall 22, misaligned 1; 12 %.
+- No drops on the test seeds. Mean lengths 171 / 196 (BC H8) / 210–231 (IQL).
+
+### Findings (README "Part C"): IQL ≈ BC (not better)
+- RL removes the grasp fixed point (never grasped 16–27 → 3–9) but adds release failures (held at end, or
+  released > 2 mm off the wall).
+- Combined data > sim only for IQL. For plain BC, adding noisy sim successes hurts (80 → 69 %).
+- IQL collides more.
+- Hypotheses, not verified: unconverged critic, sparse release reward, first-action chunk weighting, almost
+  no reward difference between "touching" and "5 mm off" while holding.
+
+### Plots and fixes
+- `media/training_*.png` for all 7 runs and `media/comparison.png` (success with CI, per-episode error
+  scatter, collisions, length, stacked failure modes).
+- Fixes: step axis shown as "50k"; a Wilson error bar at 100 % came out as −1e-14 and crashed matplotlib
+  → clipped at 0.
