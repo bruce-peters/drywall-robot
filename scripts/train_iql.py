@@ -71,7 +71,7 @@ from drywall_env.training_utils import (  # noqa: E402
     JsonlLogger, default_log_path, make_env, set_seed, snapshot_path, validation_rollouts,
 )
 from drywall_env.transitions import (  # noqa: E402
-    REWARD_TERMS, STATE_DIM, UMI_REWARD_TERMS, load_many, state_slices,
+    REWARD_TERMS, STATE_DIM, UMI_REWARD_TERMS, dataset_to_wall_frame, load_many, state_slices,
 )
 
 EXP_ADV_MAX = 100.0
@@ -141,12 +141,19 @@ def main():
                     help="continue from the training state saved at the last validation step, if any")
     ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
                     help="env used for the validation rollouts (hard: seeds 25000-25049, full region)")
+    ap.add_argument("--frame", choices=["base", "wall"], default="base",
+                    help="wall = states / actions rotated so the wall target is always straight ahead")
+    ap.add_argument("--head", choices=["mse", "gmm"], default="mse",
+                    help="gmm = Gaussian-mixture motion head (multimodal); mse = single-mode (default)")
+    ap.add_argument("--n-modes", type=int, default=5, help="mixture modes for --head gmm")
     args = ap.parse_args()
 
     set_seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     terms = {"stored": None, "umi": UMI_REWARD_TERMS, "all": REWARD_TERMS}[args.reward_terms]
     D = load_many(args.data, terms)  # refuses test seeds; one reward definition
+    if args.frame == "wall":  # states and actions in the wall frame (ActorNet docstring)
+        dataset_to_wall_frame(D)
     N = len(D["actions"])
     T = lambda x, dt=torch.float32: torch.as_tensor(x, dtype=dt, device=dev)  # noqa: E731
     S, S2 = T(D["observations"]), T(D["next_observations"])
@@ -170,7 +177,8 @@ def main():
     # Networks. One state normalizer (fit on the dataset) shared by actor, critics and value.
     sdim = D["observations"].shape[1]  # 37 (easy, state v1) or 46 (hard, state v2)
     norm = Normalizer(sdim).fit(D["observations"]).to(dev)
-    actor = ActorNet(state_dim=sdim, hidden=args.hidden, chunk=args.chunk).to(dev)
+    actor = ActorNet(state_dim=sdim, hidden=args.hidden, chunk=args.chunk,
+                     frame=args.frame, head=args.head, n_modes=args.n_modes).to(dev)
     actor.norm.load_state_dict(norm.state_dict())
     qf = TwinQ(norm, args.hidden, sdim).to(dev)
     q_target = copy.deepcopy(qf).requires_grad_(False)

@@ -1,0 +1,8 @@
+iql_umi_sim_fix_b30_wall_in: success 41.0 % (95% CI 32-51), 283 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_umi_sim_fix_b30_wall_in | 41 % | 32-51 % | 66.0 | 5.63 | 30 % | 1 % | 392 |
+
+failure modes (episodes):
+  iql_umi_sim_fix_b30_wall_in dropped 1  held_at_end 25  released_off_wall 18  released_misaligned 15

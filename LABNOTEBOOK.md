@@ -1174,3 +1174,196 @@ The user approved fixes 1–4. The sub-choices below are mine, made autonomously
   "carried but never placed, a median ~13 cm off" interpretation, and the takeaway was updated. README
   (headline, easy table, hard table, an "IQL fixes" subsection, findings 3–4) and the technical report were
   updated to match.
+
+## 2026-11-18 (evening) — Wall frame, β = 30, mixture head
+
+### [DECISION] Fixes 1, 4 and 5 from the "how can we increase the success rate" list
+The user said "lets try 1 and 4 and maybe do 5". The sub-choices below are mine.
+1. **Wall frame** (`--frame wall`, `ActorNet.frame`).
+   - **What changes:** the network sees states and predicts actions in the base frame rotated about z by
+     −ψ, where ψ is the wall target's yaw from the state's `target_rot6`. The target's z-axis is the wall's
+     inward normal, so ψ = atan2(−n_y, −n_x), which is 0 on the easy layout.
+   - **What is rotated:** base-frame positions and rotation columns (EE, panel, target). The relative
+     poses (panel in target / EE) and the suction state are unchanged.
+   - **Actions:** the position delta becomes R v and the rotation delta becomes R D Rᵀ (exact, via rpy;
+     the env applies D on the left).
+   - `TorchPolicy` converts the state in and the action out, so env, evaluation and viewer code is
+     unchanged. Datasets are converted at load time (`dataset_to_wall_frame`); no regeneration.
+   - **Checked on the hard data:** state and action round-trips are exact (≤ 1.2e-7), the canonical yaw is
+     ≡ 0, and the invariant parts are untouched.
+   - **Output range:** 2–4 % of rotated x / y / roll / pitch components exceed ±1 (max √2), so in the wall
+     frame the motion outputs are tanh × √2 (z stays 1). The env still clips the back-rotated action to ±1.
+   - **Validity:** uses only the target pose estimate, which is deployable. Not privileged.
+4. **β = 30** at reward × 0.01, as agreed. The final β3 advantage histogram predicts 2.9 % clipped and a mean
+   weight of 5.0, vs 11–17 % clipped originally.
+   - **Side finding:** the effective sample size of the weights is only 5–7 % for β 10–30. A few
+     high-advantage samples dominate, so the weighting is sharper than "mean weight 1.4" suggested.
+5. **Mixture head** (`--head gmm`, K = 5): a Gaussian mixture over the whole 8-step motion chunk.
+   - Diagonal std clamped to [0.01, 1]; means are tanh × the frame's scale.
+   - The NLL is divided by 6H so its scale sits near BCE's.
+   - At run time it executes the mean of the most likely mode.
+   - I chose this over diffusion as the smaller change that still represents several modes (clockwise vs
+     anticlockwise swings). In IQL the AWR weights multiply this NLL instead of the MSE.
+- **Runs:** all hard, UMI + sim, chunk 8 / execute 4, seed 0.
+  - IQL runs: the fixed recipe (reward × 0.01, `--balance`, `--release-weight 10`, 1M steps), with
+    `--resume`.
+  - BC runs: the BC-control recipe (UMI + sim successes, 30k steps).
+
+  | run | frame | head | β | isolates |
+  |---|---|---|---|---|
+  | iql_umi_sim_fix_b30 | base | mse | 30 | fix 4 (vs fix_b3 / fix_b10) |
+  | iql_umi_sim_fix_b3_wall | wall | mse | 3 | fix 1 (vs fix_b3) |
+  | iql_umi_sim_fix_b30_wall | wall | mse | 30 | 1 + 4 |
+  | iql_umi_sim_fix_b30_wall_gmm | wall | gmm | 30 | fix 5 (vs b30_wall) |
+  | bc_umi_sim_h8_wall | wall | mse | — | fix 1 for BC (vs BC control) |
+  | bc_umi_sim_h8_wall_gmm | wall | gmm | — | fix 5 for BC |
+
+- **Code:**
+  - `transitions.py`: `wall_yaw`, `rotate_states_z`, `rotate_actions_z`, `rpy_to_mat_batch`,
+    `dataset_to_wall_frame`.
+  - `policies.py`: `ActorNet(frame, head, n_modes)`, with `motion_scale` a non-persistent buffer so old
+    checkpoints still load. `TorchPolicy` converts frames.
+  - `train_bc.py` / `train_iql.py`: `--frame --head --n-modes`.
+  - **Tests (42 pass):** wall-frame policy equivariance (rotate the scene 37° → actions rotate the same way,
+    for both heads; the target is straight ahead in the wall frame), and GMM head shapes and likelihood
+    ordering.
+  - Smoke-tested both scripts with wall + gmm.
+- **Launch, attempt 1 (21:41): all 6 aborted within seconds** with `forrtl: error (200): program aborting due to
+  window-CLOSE event`.
+  - The WMI launch opens a visible console window per process. The windows were closed (most likely by hand,
+    since the user was at the machine), and the Intel Fortran runtime that numpy uses aborts on that event.
+    The earlier 4-run batch survived only because nobody touched its windows.
+  - **Fix:** relaunched at 21:53 with `Win32_ProcessStartup.ShowWindow = 0` (hidden; nothing pops up). The
+    console files were cleared and the runs started from scratch.
+  - **First check:** at β30 the clip fraction is 2.4 % (as predicted) and the mean weight 4.2–4.6, at about
+    55 steps/s each while the BC runs are still going.
+- **Post-processing driver** `post_round2.py` (scratchpad, hidden, progress in
+  `runs/hard_challenge/console/post_round2.txt`): it evaluates each run on hard test in and out as soon as
+  that run finishes.
+  - No release-threshold tuning this round: it made no difference on the hard task.
+  - Test seeds are evaluated once per model, at release threshold 0.5.
+
+### 2026-11-18 23:25 — Round 2: BC wall-frame / GMM results (IQL runs still training)
+
+BC runs finished 22:13; the driver evaluated them on hard test in / ood (release threshold 0.5):
+
+| run | in | ood |
+|---|---|---|
+| bc_umi_sim_h8 (base, mse; control) | 55 % | 20 % |
+| bc_umi_sim_h8_wall (wall frame, mse) | 63 % | 47 % |
+| bc_umi_sim_h8_wall_gmm (wall frame, GMM K=5) | **93 %** | **74 %** |
+
+Paired exact McNemar on the same seeds:
+- wall vs base BC: in +29/−21 p=0.32; ood +38/−11 p=1.4e-4. The wall frame mainly fixes generalisation outside the demo region, as intended.
+- wall+GMM vs wall: in +32/−2 p=7e-8; ood +37/−10 p=1e-4. The multimodal head is the biggest single gain.
+- wall+GMM BC vs best IQL so far (fix_b3): in +34/−6 p=8e-6; ood +53/−5 p=4e-11.
+
+IQL round-2 status at 23:20, about 55 steps/s, so finishing about 03:00–04:00 (validation success, 50 seeds):
+- fix_b30 (base): 296k, val 10→14 %. β30 looks harmful.
+- fix_b3_wall: 300k, val 58 % at 100k, 32 % at 200k.
+- fix_b30_wall: 383k, val 2–8 %.
+- fix_b30_wall_gmm: 380k, val 6–10 %.
+
+The driver evaluates each on test as it finishes.
+
+### 2026-11-18 23:45 — Fix: policy viewer crashed with --snapshots
+
+`python scripts/view_policy.py --challenge hard --snapshots` crashed at start-up with `KeyError: 'config'`.
+`find_models` listed every `*.pt` under `snapshots/`, which now includes the IQL resume files
+`snapshots/<run>/train_state.pt`. Those aren't actors. That file sorted last and the default model
+was `models[-1]`, so the viewer tried to load it at once.
+
+Fix in `scripts/view_policy.py`:
+- Snapshots are now only `snapshots/*/step_*.pt`.
+- Final models are listed before snapshots.
+- The default model is the last *final* checkpoint.
+
+Checked: 155 hard entries listed, no `train_state.pt`, all 155 load with `load_policy`.
+
+### 2026-11-19 00:05 — Technical report as LaTeX
+
+Wrote `docs/technical_report.tex`, a one-to-one LaTeX version of `docs/technical_report.md` (same
+sections, tables, findings; no content changes). It uses article 10pt, A4 with 2 cm margins, and the packages
+booktabs, enumitem, titlesec, hyperref and amsmath, so it compiles on Overleaf as is.
+
+Local test compile: abandoned. MiKTeX here is missing packages (`infwarerr.sty`, needed by hyperref), and
+its package installer hung. The user will render on Overleaf. The .md is still the source the README links;
+the round-2 results (BC wall + GMM 93 % / 74 %) are not in either version yet.
+
+### 2026-11-19 00:23 — Technical report .tex rewritten in Bruce's voice
+
+Rewrote `docs/technical_report.tex` with the bruce-writing-style skill, using the samples in the vault's
+`Context/Voice Samples/` (academic + application registers).
+- **What changed:** most bullet stacks are now prose paragraphs, in first person where I did the work, with
+  parentheses for asides and no em dashes.
+- **What stayed:** sections, both tables, the conversion list, the IQL loss list, and every number and claim.
+  No new facts.
+- **Voice check (academic register):** LOOP SCORE 9. The remaining flags are mostly technical:
+  - parentheses for units and ranges;
+  - "learned policy" counted as a vague word;
+  - short list items.
+
+The .md is still the old bullet version. Round-2 results are not in either yet.
+
+### 2026-11-19 01:10 — Checked a "failed but looks placed" episode from the viewer
+
+The user saw an episode in the policy viewer that looked placed but was marked failed. Their screenshot
+shows the arm by the wall with the blue **suction plate** (not the panel). The panel is the light sheet on
+the wall, and the green **target outline** shows along one edge.
+
+I replayed the best policy's (`bc_umi_sim_h8_wall_gmm`) in-region `released_misaligned` failures (seeds
+30001 / 30003 / 30019):
+- Each was released on the ledge, and the fixture engaged at release.
+- At the end:
+  - wall distance 0.3–0.5 mm;
+  - height within 3 mm of the target;
+  - orientation 0.01–0.55°;
+  - but **21–29 mm sideways along the wall** (target-frame x +21.0 / +24.7 / +29.2 mm, all the same
+    sign).
+
+They fail only the 20 mm position tolerance, so the evaluator is correct by its own definition.
+
+Near misses, counted as released on the wall but 20–30 mm off:
+
+| policy | in | out |
+|---|---|---|
+| wall + GMM BC | 6 of 7 fails | 4 of 26 |
+| IQL fix_b3 | 4 of 35 | 6 of 74 |
+
+The consistent +x sign suggests a small systematic lateral bias in that policy. Not investigated yet.
+
+## 2026-11-19 03:05 — Round 2 complete: all results, paired tests, charts
+
+The driver (`post_round2.py`) finished at 02:59:39 with no aborts (no `forrtl`). Every run was evaluated
+on the same 100 held-out seeds per test set (in-region 30000–30099, outside-region 31000–31099).
+
+| policy | in | ood |
+|---|---|---|
+| BC umi+sim h8 (round 1) | 55 | 20 |
+| BC + wall frame | 63 | 47 |
+| **BC + wall frame + GMM** | **93** | **74** |
+| IQL fix β3 (round 1 best) | 65 | 26 |
+| IQL fix β3 + wall frame | 63 | 53 |
+| IQL fix β30 | 41 | 7 |
+| IQL fix β30 + wall frame | 41 | 16 |
+| IQL fix β30 + wall frame + GMM | 75 | 25 |
+
+Paired exact McNemar (only-A / only-B, p):
+- β30 vs β3: in 14/38 p=0.0012, ood 3/22 p=1.6e-4. β30 vs β10: in p=0.04, ood p=0.017. **β30 hurts**:
+  a sharper AWR weight overfits the critic's errors.
+- IQL β3 + wall vs β3: in 21/23 p=0.88, ood 37/10 p=9.8e-5. **The wall frame doubles IQL ood**, the same
+  effect as for BC.
+- IQL β30 + wall vs β30: in p=1, ood 15/6 p=0.078 (same direction, not significant at β30).
+- IQL β30 + wall + GMM vs β30 + wall: in 41/7 p=6.2e-7, ood 21/12 p=0.16. **GMM helps IQL too.**
+- IQL β3 + wall vs BC + wall (same input frame, both unimodal): in 24/24 p=1, ood 22/16 p=0.42.
+  **There is no significant difference**: the offline-RL reweighting neither helps nor hurts at matched architecture.
+- IQL β3 + wall vs BC + wall + GMM: in p=2.8e-6, ood p=1.1e-3. IQL β30 + wall + GMM vs BC + wall + GMM:
+  in p=5.3e-4, ood p=5.9e-12. **BC + wall + GMM stays the best learned policy.**
+
+Conclusion: the representation choices (wall frame, multimodal head) matter far more than the
+learning algorithm. At a matched architecture IQL ties BC. The untested fair cell is IQL β3 + wall + GMM
+(about 5 h); it has not been launched and awaits the user's decision.
+
+Charts: `media/hard_challenge/comparison_round2_{in,ood}.png`; training curves
+`media/hard_challenge/training_{iql_umi_sim_fix_b30,iql_umi_sim_fix_b3_wall,iql_umi_sim_fix_b30_wall,iql_umi_sim_fix_b30_wall_gmm,bc_umi_sim_h8_wall,bc_umi_sim_h8_wall_gmm}.png`.
+The McNemar script is the scratchpad `mcnemar2.py` (exact binomial, `math.comb`; scipy is not installed).

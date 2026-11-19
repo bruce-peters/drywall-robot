@@ -47,11 +47,13 @@ COLUMNS = [("seed", 60), ("model", 240), ("result", 80), ("pos mm", 70), ("ori d
 
 
 def find_models(ckpt_dir="checkpoints", challenge: str | None = None, snapshots: bool = False) -> list[str]:
-    """Final checkpoints of a challenge; with snapshots=True also every validation-step snapshot."""
+    """Final checkpoints of a challenge; with snapshots=True also every validation-step snapshot
+    (snapshots/<run>/step_*.pt; the resume file train_state.pt there is not an actor)."""
     root = Path(ckpt_dir) / f"{challenge}_challenge" if challenge else Path(ckpt_dir)
-    paths = sorted(p for p in root.rglob("*.pt") if not p.name.endswith(".critics.pt")
-                   and (snapshots or "snapshots" not in p.parts))
-    return ["scripted"] + [str(p) for p in paths]
+    finals = sorted(p for p in root.rglob("*.pt") if "snapshots" not in p.parts
+                    and not p.name.endswith(".critics.pt"))
+    snaps = sorted(root.rglob("snapshots/*/step_*.pt")) if snapshots else []
+    return ["scripted"] + [str(p) for p in finals + snaps]  # finals first: the default model is a final one
 
 
 class App:
@@ -102,7 +104,8 @@ class App:
         top = tk.Frame(r)
         top.pack(fill="x", padx=8, pady=4)
         tk.Label(top, text="model").pack(side="left")
-        self.model_var = tk.StringVar(value=self.models[-1] if len(self.models) > 1 else self.models[0])
+        finals = [m for m in self.models if "snapshots" not in Path(m).parts]
+        self.model_var = tk.StringVar(value=finals[-1])
         ttk.Combobox(top, textvariable=self.model_var, values=self.models, width=72,
                      state="readonly").pack(side="left", padx=4)
         tk.Label(top, text="seed").pack(side="left", padx=(8, 2))

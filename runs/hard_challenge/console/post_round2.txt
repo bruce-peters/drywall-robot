@@ -1,0 +1,20 @@
+21:53:24 waiting for training
+22:13:24 bc_umi_sim_h8_wall trained; evaluating
+22:13:24 bc_umi_sim_h8_wall_gmm trained; evaluating
+22:17:24 eval bc_umi_sim_h8_wall_gmm_in exit 0
+22:18:24 eval bc_umi_sim_h8_wall_gmm_ood exit 0
+22:19:24 eval bc_umi_sim_h8_wall_in exit 0
+22:19:25 eval bc_umi_sim_h8_wall_ood exit 0
+00:57:33 iql_umi_sim_fix_b30_wall trained; evaluating
+01:02:34 eval iql_umi_sim_fix_b30_wall_in exit 0
+01:03:34 eval iql_umi_sim_fix_b30_wall_ood exit 0
+01:46:35 iql_umi_sim_fix_b30_wall_gmm trained; evaluating
+01:50:35 eval iql_umi_sim_fix_b30_wall_gmm_in exit 0
+01:52:35 eval iql_umi_sim_fix_b30_wall_gmm_ood exit 0
+02:46:38 iql_umi_sim_fix_b3_wall trained; evaluating
+02:50:39 eval iql_umi_sim_fix_b3_wall_in exit 0
+02:51:39 eval iql_umi_sim_fix_b3_wall_ood exit 0
+02:52:39 iql_umi_sim_fix_b30 trained; evaluating
+02:57:39 eval iql_umi_sim_fix_b30_in exit 0
+02:58:39 eval iql_umi_sim_fix_b30_ood exit 0
+02:59:39 ALL DONE

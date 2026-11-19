@@ -1,0 +1,8 @@
+bc_umi_sim_h8_wall_gmm_in: success 93.0 % (95% CI 86-97), 221 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| bc_umi_sim_h8_wall_gmm_in | 93 % | 86-97 % | 8.3 | 0.13 | 8 % | 0 % | 236 |
+
+failure modes (episodes):
+  bc_umi_sim_h8_wall_gmm_in held_at_end 1  released_misaligned 6

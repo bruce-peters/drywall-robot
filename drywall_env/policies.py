@@ -54,30 +54,67 @@ def mlp(inp: int, out: int, hidden=(256, 256, 256), layer_norm: bool = True) -> 
 
 
 class ActorNet(nn.Module):
-    def __init__(self, state_dim: int = STATE_DIM, hidden=(256, 256, 256), chunk: int = 1):
+    """frame = "base": states / actions in the robot base frame (as recorded).
+    frame = "wall": the network sees states and predicts actions in the wall frame
+    (transitions.wall_yaw / rotate_*_z); TorchPolicy converts in and out. Rotated x / y / roll /
+    pitch / yaw deltas can reach sqrt 2, so the motion outputs are tanh * sqrt 2 there (z stays 1).
+    head = "mse": one motion chunk per state (fixed-variance Gaussian -> MSE).
+    head = "gmm": a K-mode Gaussian mixture over the whole motion chunk (diagonal covariances), so
+    two different valid motions (e.g. swinging round the base clockwise vs anticlockwise) are not
+    averaged into one; the executed chunk is the mean of the most likely mode."""
+
+    def __init__(self, state_dim: int = STATE_DIM, hidden=(256, 256, 256), chunk: int = 1,
+                 frame: str = "base", head: str = "mse", n_modes: int = 5):
         super().__init__()
         self.state_dim, self.hidden, self.chunk = state_dim, tuple(hidden), chunk
+        self.frame, self.head, self.n_modes = frame, head, n_modes
         self.norm = Normalizer(state_dim)
-        self.net = mlp(state_dim, 7 * chunk, hidden)
+        n_motion = 6 * chunk
+        n_out = 7 * chunk if head == "mse" else n_modes * (1 + 2 * n_motion) + chunk
+        self.net = mlp(state_dim, n_out, hidden)
+        r2 = float(np.sqrt(2.0))
+        scale = [r2, r2, 1.0, r2, r2, r2] if frame == "wall" else [1.0] * 6
+        # derived from `frame`, so not stored in checkpoints (older checkpoints stay loadable)
+        self.register_buffer("motion_scale", torch.tensor(scale, dtype=torch.float32), persistent=False)
+
+    def _gmm(self, s):
+        """-> mixture log-weights (B, K), means (B, K, H, 6), stds (B, K, H, 6), attach logits (B, H)."""
+        K, H = self.n_modes, self.chunk
+        out = self.net(self.norm(s))
+        logw = torch.log_softmax(out[:, :K], -1)
+        mu = torch.tanh(out[:, K:K + K * H * 6].view(-1, K, H, 6)) * self.motion_scale
+        log_std = out[:, K + K * H * 6:K + 2 * K * H * 6].view(-1, K, H, 6).clamp(np.log(0.01), np.log(1.0))
+        return logw, mu, log_std.exp(), out[:, -H:]
 
     def forward(self, s):
-        """s (B, 37) -> motion (B, H, 6) in [-1, 1], attach logits (B, H)."""
+        """s (B, state_dim) -> motion (B, H, 6), attach logits (B, H)."""
+        if self.head == "gmm":
+            logw, mu, _, logit = self._gmm(s)
+            best = logw.argmax(-1)
+            return mu[torch.arange(len(mu), device=mu.device), best], logit
         out = self.net(self.norm(s)).view(-1, self.chunk, 7)
-        return torch.tanh(out[..., :6]), out[..., 6]
+        return torch.tanh(out[..., :6]) * self.motion_scale, out[..., 6]
 
     def loss_per_sample(self, s, a_chunk, attach_weight: float = 1.0, bce_weight=None):
-        """Per-sample negative log-likelihood surrogate: MSE on motion + BCE on attach,
-        averaged over the chunk. a_chunk (B, H, 7) with attach in {-1, +1}. bce_weight (B, H),
-        optional: per-element weights on the attach BCE (e.g. to up-weight the rare release)."""
-        motion, logit = self(s)
-        mse = ((motion - a_chunk[..., :6]) ** 2).sum(-1).mean(-1)
+        """Per-sample negative log-likelihood surrogate: motion term + BCE on attach, averaged over
+        the chunk. Motion term: MSE (head "mse") or the mixture NLL per motion dimension (head
+        "gmm"). a_chunk (B, H, 7) with attach in {-1, +1}. bce_weight (B, H), optional: per-element
+        weights on the attach BCE (e.g. to up-weight the rare release)."""
+        if self.head == "gmm":
+            logw, mu, std, logit = self._gmm(s)
+            lp = torch.distributions.Normal(mu, std).log_prob(a_chunk[:, None, :, :6]).sum((-1, -2))
+            motion = -torch.logsumexp(logw + lp, -1) / (6 * self.chunk)
+        else:
+            m, logit = self(s)
+            motion = ((m - a_chunk[..., :6]) ** 2).sum(-1).mean(-1)
         bce = nn.functional.binary_cross_entropy_with_logits(
             logit, (a_chunk[..., 6] > 0).float(), reduction="none")
         bce = (bce * bce_weight).mean(-1) if bce_weight is not None else bce.mean(-1)
-        return mse + attach_weight * bce, mse, bce
+        return motion + attach_weight * bce, motion, bce
 
     def config(self) -> dict:
-        return {"state_dim": self.state_dim, "hidden": list(self.hidden), "chunk": self.chunk}
+        return {"state_dim": self.state_dim, "hidden": list(self.hidden), "chunk": self.chunk,
+                "frame": self.frame, "head": self.head, "n_modes": self.n_modes}
 
 
 def action_chunks(actions: np.ndarray, episode_ends: np.ndarray, chunk: int) -> np.ndarray:
@@ -113,16 +150,22 @@ class TorchPolicy:
 
     @torch.no_grad()
     def predict(self, states: np.ndarray) -> np.ndarray:
-        """Batched: (B, 37) -> (B, H, 7) actions."""
-        from .transitions import state_slices
+        """Batched: (B, state_dim) base-frame states -> (B, H, 7) base-frame actions."""
+        from .transitions import rotate_actions_z, rotate_states_z, state_slices, wall_yaw
 
-        s = torch.as_tensor(np.asarray(states, np.float32), device=self.device).view(-1, self.actor.state_dim)
+        states = np.asarray(states, np.float32).reshape(-1, self.actor.state_dim)
+        wall = getattr(self.actor, "frame", "base") == "wall"
+        if wall:  # into the wall frame
+            psi = wall_yaw(states)
+            states = rotate_states_z(states, -psi)
+        s = torch.as_tensor(states, device=self.device)
         motion, logit = self.actor(s)
         attached = s[:, state_slices(self.actor.state_dim)["attached"]].view(-1, 1) > 0.5
         rel = torch.logit(torch.tensor(float(self.release_threshold), device=s.device))
         thr = torch.where(attached, rel, torch.zeros((), device=s.device))
         attach = torch.where(logit > thr, 1.0, -1.0).unsqueeze(-1)
-        return torch.cat([motion, attach], -1).cpu().numpy()
+        out = torch.cat([motion, attach], -1).cpu().numpy()
+        return rotate_actions_z(out, psi) if wall else out  # back to the base frame
 
     def act(self, obs) -> np.ndarray:
         if not self._queue:

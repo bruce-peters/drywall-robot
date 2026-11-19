@@ -1,0 +1,254 @@
+% Technical report (LaTeX version of docs/technical_report.md).
+% Build: pdflatex technical_report.tex   (or: latexmk -pdf technical_report.tex)
+\documentclass[10pt]{article}
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{titlesec}
+
+\setlist{nosep,leftmargin=1.4em}
+\titlespacing*{\section}{0pt}{1.2ex plus .5ex}{.6ex}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{.6ex}
+
+\newcommand{\pct}{\,\%}
+\newcommand{\para}[1]{\textbf{#1}}
+
+\title{\vspace{-1.5em}Learning drywall panel placement from UMI-style demonstrations\\
+and simulation-based offline RL}
+\author{Bruce Peters}
+\date{\vspace{-1em}\small Technical report (draft). Repository: this repo; full log of decisions and failures:
+\texttt{LABNOTEBOOK.md}.}
+
+\begin{document}
+\maketitle
+
+\section{System architecture and design decisions}
+
+\para{Simulation (Part A).} The simulation is a MuJoCo 4 work cell with a Franka Panda (from Menagerie, with
+no hand) carrying a $24 \times 18$\,cm suction plate, a $0.6 \times 0.4 \times 0.01$\,m panel (1--3\,kg), a
+rack, and a wall with a target region and a support ledge. Suction is a weld constraint that only engages when
+the plate is within 3\,cm of the panel face, centred and within $30^\circ$ of parallel, and it locks in at the
+\emph{current} relative pose (no snapping the panel into place). Once a released panel is resting on the
+ledge within 2\,mm of the wall, a second weld holds it there as an external fixture.
+
+The policy acts at 10\,Hz with a 7-D action: base-frame end-effector deltas (at most 2\,cm and $3^\circ$ per
+step) plus a suction bit. The deltas are integrated into a commanded pose, clipped to a workspace box, and
+tracked by damped-least-squares IK feeding position actuators. On real hardware the same commanded pose would
+just be streamed to the vendor's Cartesian impedance controller.
+
+Observations are split into \emph{deployable} ones (joint states, EE pose, suction state, and panel and target
+pose \emph{estimates}) and \emph{privileged} ones (true poses, velocities, contact forces). Every reward term is
+logged separately: position and orientation error, collisions, wall force above 50\,N, action magnitude and
+jerk, a drop ($-50$) and success ($+100$). Success means the panel is within 20\,mm / $5^\circ$ of the target,
+against the wall, released, and still for 5 steps.
+
+\para{Two task distributions.} In the easy task the rack and wall are fixed, with $\pm 5$\,cm / $\pm 10^\circ$
+randomization plus mass and friction. In the hard task the wall can rotate anywhere within $\pm 150^\circ$
+around the robot and the rack can sit anywhere on a 0.6--0.7\,m ring (even behind the robot). I picked those
+ranges from an IK reachability sweep, which showed the arm can only face the wall at panel heights of about 0.55--0.75\,m,
+and a $+15\ldots+75^\circ$ band of panel yaw is unreachable at the wrist. The hard task needed two additions to
+work at all, a posture-aware IK (the null-space posture follows the EE azimuth, otherwise joint 6 hits its
+limit at rotated walls) and a 500-step limit.
+
+\para{Demonstrations (Part B).} A scripted waypoint controller stands in for the human demonstrator, and it
+only uses the action interface and deployable observations. The hard version works in the wall's frame,
+swings around the base, and has two modes with per-episode setpoint variance: \texttt{demo} (moderate, mostly
+successful) and \texttt{explore} (large variance and smooth noise, so a lot of failures).
+
+Episodes are recorded as a UMI dataset in UMI's own zarr replay-buffer format (JpegXL images,
+\texttt{episode\_ends}). Each one has 60\,Hz absolute EE poses in a world/SLAM frame, a gripper (suction)
+state, a $155^\circ$ fisheye wrist camera (with mirrors), an external camera, the panel pose in the target
+frame, episode boundaries and success labels. No actions or rewards are stored.
+
+\para{UMI $\to$ robot conversion.} Turning the UMI data into robot training data takes five steps:
+\begin{enumerate}
+  \item World $\to$ robot-base frame (tested with an arbitrary rotated and translated map frame).
+  \item Timestamp resampling to the 10\,Hz control rate (linear position, slerp rotation, zero-order-hold
+    gripper).
+  \item Absolute poses $\to$ base-frame deltas scaled to the action limits.
+  \item Gripper width $\to$ suction bit.
+  \item A workspace check.
+\end{enumerate}
+
+The learning state is \para{37-D} (EE pose, suction, panel and target poses, panel-in-target pose), and
+\para{46-D} for the hard task (which adds the panel pose in the EE frame). All rotations use the continuous 6D
+representation from Zhou et al.\ (2019), because the tool-down EE quaternion sits at $w \approx 0$ and
+flipped sign 10 times in a single episode under a $w \ge 0$ convention.
+
+To validate the conversion, I rebuilt states from the zarr and they match the simulator to $10^{-7}$.
+Replaying the derived actions open-loop also reproduces the recorded outcomes: easy 73\pct{} vs 74\pct, and
+hard 99.6\pct{} vs 99.8\pct{} with 99.4\pct{} outcome agreement.
+
+This does make some big assumptions: no SLAM drift, perfect gripper sensing, the scripted controller as the
+human, and a target pose straight from the simulator (standing in for fiducial or BIM registration). Panel and
+target poses are perfect estimates, and no camera-based perception is implemented.
+
+\section{Training methodology}
+
+\para{Policy.} Every learned policy uses the same network, an MLP ($3 \times 256$ with LayerNorm) on
+normalized states. It outputs 6 tanh motion dims and 1 suction logit as \para{action chunks} of 8 steps, of
+which 4 are executed before re-planning. The loss is MSE + BCE (the negative log-likelihood of a
+fixed-variance Gaussian $\times$ Bernoulli). Chunking was the single biggest change on the easy task, where
+single-step BC only reached 16\pct{} validation success and chunking got that to 84\pct{} (it deals with phase
+ambiguity and compounding error).
+
+\para{Behaviour cloning} is trained on successful episodes only (``filtered BC'') for 30k steps.
+
+\para{Offline RL.} I implemented Implicit Q-Learning (Kostrikov et al.\ 2021) \para{from scratch}, with each
+loss documented against the paper's equations:
+\begin{itemize}
+  \item expectile value regression ($\tau = 0.7$);
+  \item TD targets bootstrapped from $V(s')$, never from $\max_{a'} Q$;
+  \item twin target critics;
+  \item advantage-weighted regression for the actor with $\exp(\beta A)$, clipped at 100,
+    $\beta \in \{3, 10\}$.
+\end{itemize}
+The actor \emph{is} the BC network, so BC and IQL only differ in the per-sample weight. Training only reads
+the fixed dataset (\texttt{env.step} is never called for learning).
+
+The \para{hard-task IQL fixes} came out of a diagnosis (Section~\ref{sec:failures}): a reward scale of 0.01
+instead of 0.1, 50/50 demo/sim batches, release targets weighted $\times 10$ in the suction loss, and 1M
+steps. Optionally, the release threshold $p(\text{attach})$ is tuned, on validation seeds only.
+
+\para{Offline datasets.} The easy dataset is 1,000 episodes from scripted plus noisy-BC behaviour
+(57\pct{} success), and the hard one is 2,000 \texttt{explore} episodes (64\pct{} success, 10\pct{} drops,
+collisions in 41\pct). Both are stored as D4RL-style transitions with every reward term kept separately. When
+UMI and sim data are combined, both get relabelled to only the reward terms UMI data can support, since UMI
+has no collision, force or drop sensing.
+
+\para{Protocol.} Data, validation and test seeds are all disjoint (the data scripts refuse test seeds).
+Validation runs 50 episodes every 5k (BC) / 20k (IQL) steps and is only a measurement. Snapshots are saved for
+inspection but never used to pick a checkpoint, so the reported model is always the last step. Testing is 100
+episodes per policy with 95\pct{} Wilson intervals and an automatic failure-mode classifier. The hard task has
+two test sets, one \emph{inside} the UMI demos' region and one \emph{outside} it.
+
+\section{Experimental results}
+
+\para{Easy task} (test seeds 10000--10099):
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+policy & data & success (95\pct{} CI) & collisions \\
+\midrule
+scripted controller & --- & 100\pct{} (96--100) & 0\pct \\
+BC, single-step & UMI demos & 23\pct{} (16--32) & 2\pct \\
+\textbf{BC, chunked} & UMI demos & \textbf{80\pct{} (71--87)} & 9\pct \\
+BC control & UMI + sim successes & 69\pct{} (59--77) & 2\pct \\
+IQL $\beta 3$ / $\beta 10$ & sim & 58\pct{} / 61\pct & 22 / 14\pct \\
+\textbf{IQL $\beta 3$} / $\beta 10$ & UMI + sim & \textbf{71\pct} / 68\pct & 8 / 12\pct \\
+IQL $\beta 3$, release threshold tuned (0.65) & UMI + sim & \textbf{81\pct{} (72--87)} & 8\pct \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\para{Hard task} (in = seeds 30000--30099 inside the demos' region; out = 31000--31099 outside):
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+policy & data & in & out \\
+\midrule
+scripted controller (demo mode) & --- & 99\pct{} (95--100) & 92\pct{} (85--96) \\
+BC, chunked & UMI demos (demo region) & 6\pct{} (3--12) & \textbf{0\pct{} (0--4)} \\
+\textbf{BC control} & UMI + sim successes & \textbf{55\pct{} (45--64)} & 20\pct{} (13--29) \\
+IQL $\beta 10$, success $100 \to 1000$ & sim & 2\pct{} $\to$ 16\pct & 10\pct{} $\to$ 19\pct \\
+IQL $\beta 3$, success $100 \to 1000$ & sim & 21\pct{} $\to$ 8\pct & 11\pct{} $\to$ 14\pct \\
+IQL $\beta 10$, success 1000 & UMI + sim & 39\pct{} (30--49) & 22\pct{} (15--31) \\
+IQL $\beta 10$, same, 1M steps (ablation) & UMI + sim & 33\pct{} (25--43) & 17\pct{} (11--26) \\
+\textbf{IQL fixed $\beta 3$} / $\beta 1$ / $\beta 10$ & UMI + sim, balanced
+  & \textbf{65\pct{} (55--74)} / 50 / 57\pct & 26 / \textbf{32\pct} / 19\pct \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Charts are in \texttt{media/*/comparison*.png} and \texttt{media/*/training\_*.png}, and per-episode results
+are in \texttt{results/}.
+
+\para{Findings.}
+\begin{enumerate}[itemsep=.4ex]
+  \item \para{Simulation data gives coverage that demonstrations don't.} BC on demos from a limited region
+    scores 0\pct{} outside it (91 of 100 episodes never even grasp the panel). Every policy trained with
+    simulated data generalizes outside the demo region, 20--32\pct{} for the best ones.
+  \item \para{Untuned offline RL did not beat behaviour cloning, but tuned, it matched or edged past it.}
+    Before tuning, IQL got 71\pct{} on the easy task vs 69\pct{} for the BC control and 80\pct{} for BC on
+    demos, and on the hard task 39\pct{} / 22\pct{} vs 55\pct{} / 20\pct. After the fixes, hard IQL reached
+    65\pct{} / 26\pct. Paired on the same test seeds, that is $+36$ / $-10$ episodes vs the old IQL
+    ($p < 0.001$) and $+31$ / $-21$ vs the BC control ($p = 0.21$). On the easy task, a validation-tuned
+    release threshold lifted IQL to 81\pct{} ($+10$ / $-0$, $p = 0.002$). One caveat: at the new reward scale
+    the $\beta 3$ weights are nearly uniform (mean 1.01), so a lot of the gain might come from the balanced,
+    release-weighted data rather than from the advantage weighting itself.
+  \item \para{Combining demos with sim data helps IQL} in both tasks (easy 71 vs 58--61\pct; hard 39 vs
+    16\pct{} in-region). For plain BC it depends on the task. On the easy task adding the noisier sim
+    successes hurt ($80 \to 69$\pct), while on the hard task it was essential ($6 \to 55$\pct).
+  \item \para{Reward balance matters, but it is not the whole story.} With success worth $+100$, the
+    discounted success ($\approx 22$ from 150 steps out) was only worth about 70 steps of moderate error, so
+    IQL learned to just keep holding the panel. Raising success $\times 10$ improved $\beta 10$
+    ($2 \to 16$\pct{} in-region, with disjoint intervals) but not $\beta 3$ ($21 \to 8$\pct).
+\end{enumerate}
+
+\section{Failure analysis}\label{sec:failures}
+
+\para{Where the policies fail.} Nearly every failure of the learned policies happens in the last few
+centimetres or at the suction decision. Easy BC either stalled about 9\,mm above the panel without grasping (a regression fixed point, since the tiny
+demonstrated motions near the goal average out to zero) or released 7\,mm short of the wall. Easy IQL fixed the
+grasp (never-grasped went from 16--27 to 3--9) but then released off the wall. On the hard task, BC on demos
+released mid-air (50 drops) or toggled suction at the target. The sim-trained policies were dominated by
+``held at end'', where the panel gets carried but never placed. When I measured it, that turned out to be
+mostly an approach failure: IQL's held episodes end a median 10--20\,cm from the target, while the BC
+control's end 3\,cm away. It happens in BC too (which has no reward), so reward hacking can't be the whole explanation.
+
+\para{Diagnosing hard IQL} is what led to the fixes. With success 1000 at reward $\times 0.1$ the weights
+were saturated, with 11--17\pct{} of samples hitting the $\exp(\beta A)$ clip. Release was rare, only 1 in
+144--224 suction-on states. And the runs were under-trained, with validation still rising at 200k steps.
+Training longer on its own did not help ($39 \to 33$\pct), but the combination of fixes did (65\pct).
+
+\para{Critic convergence.} At 200k steps the values are still drifting and validation swings
+$\pm$15--20\pct{} between checkpoints. At 1M steps the values are nearly flat, but validation still swings
+about $\pm 10$\pct.
+
+\para{Collisions.} IQL policies collide more than the BC control trained on the same data (hard: 36--70\pct{}
+vs 19--34\pct{} of episodes). They imitate the collision-heavy exploration data with only partial advantage
+reweighting. BC on the demos alone collides the most (65--84\pct), because it is mostly outside its training
+distribution.
+
+\para{Other limitations:} a rigid panel and ideal suction, perfect pose estimates, one training seed per
+configuration, and about 0.2\pct{} of hard sim episodes that hit a MuJoCo instability and were reset
+mid-episode (detected after the fact and documented).
+
+\section{Proposed deployment approach}
+
+This is summarized from \texttt{docs/deployment\_proposal.md}.
+
+\para{Hybrid architecture.} The learned policy (10\,Hz, 8-step chunks, 4 executed) handles gross motion,
+carrying and the approach, streamed as Cartesian pose targets to a 1\,kHz impedance controller. The final step
+gets verified instead of learned: the final approach becomes a force-controlled push to a set point, and the
+suction release becomes a \emph{request} that is only granted once contact and support are confirmed. My
+results show this is exactly where every learned policy fails, while explicit logic succeeds 92--100\pct{} of
+the time.
+
+\para{Sim-to-real risks.} The main ones (with how I would mitigate them) are perception (fiducials,
+registration, tracking through the grasp), contact dynamics (force control, system identification), panel
+flex and suction slip (vacuum monitoring, a multi-cup frame or the second arm), and site localization
+(registration against BIM, a reachability check before acting).
+
+\para{Failure handling.} If the panel slips the robot does a safe set-down, if the wall doesn't match it
+re-registers or escalates, if contact comes early it backs off and re-aligns, and if the policy is uncertain
+(ensemble disagreement, a low critic value) it pauses and hands over.
+
+\para{Field adaptation with 10--20 UMI demos.} I would co-train on the site demos plus prior data, build a
+digital twin of the site for evaluation, and then go up a staged validation ladder: open-loop replay $\to$
+twin $\to$ dry run $\to$ dummy panel $\to$ supervised real panels. Each stage has explicit pass gates (for
+example $\ge 95$\pct{} success with a Wilson lower bound $\ge 85$\pct, and zero safety violations).
+
+\para{Bottom line.} A small number of human demonstrations teaches the motion, but simulation is what extends
+it to layouts the demonstrations never covered. In this prototype offline RL only added success after careful
+diagnosis and tuning, and not significantly beyond BC. The safety-critical contact and release should not be
+left to the learned policy.
+
+\end{document}

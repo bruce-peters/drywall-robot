@@ -1,0 +1,12 @@
+WARNING: Nan, Inf or huge value in QACC at DOF 0. The simulation is unstable. Time = 40.5867.
+
+WARNING: Nan, Inf or huge value in QVEL at DOF 0. The simulation is unstable. Time = 49.4133.
+
+iql_umi_sim_fix_b30_in: success 41.0 % (95% CI 32-51), 253 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_umi_sim_fix_b30_in | 41 % | 32-51 % | 114.1 | 13.25 | 59 % | 6 % | 386 |
+
+failure modes (episodes):
+  iql_umi_sim_fix_b30_in dropped 6  held_at_end 29  released_off_wall 12  released_misaligned 12

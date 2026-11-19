@@ -1,0 +1,8 @@
+bc_umi_sim_h8_wall_gmm_ood: success 74.0 % (95% CI 65-82), 283 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| bc_umi_sim_h8_wall_gmm_ood | 74 % | 65-82 % | 71.6 | 7.69 | 15 % | 0 % | 296 |
+
+failure modes (episodes):
+  bc_umi_sim_h8_wall_gmm_ood never_grasped 4  held_at_end 12  released_off_wall 5  released_misaligned 5

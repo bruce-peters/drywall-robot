@@ -178,6 +178,82 @@ def build_state(ee_p, ee_R, attached, panel_p, panel_R, targ_p, targ_R,
     return s.astype(np.float32)
 
 
+# ---------------------------------------------------------------- wall frame (LABNOTEBOOK "wall frame")
+# The policy can work in a "wall frame": the robot base frame rotated about its vertical axis so that
+# the wall target is always straight ahead (yaw psi = 0). The arm is (nearly) symmetric about the base
+# z-axis, so layouts that differ only by the wall's direction look identical to the network. psi is
+# computed from the target pose ESTIMATE already in the state (deployable). Positions / rotations in
+# the base frame are rotated by Rz(-psi); relative quantities (panel in target / EE frame) and the
+# suction state are unchanged. Actions are rotated the same way (base-frame deltas -> wall-frame deltas).
+BASE_FRAME_KEYS = ("ee_pos", "ee_rot6", "panel_pos", "panel_rot6", "target_pos", "target_rot6")
+MAX_ROT_STEP = np.radians(3.0)  # = EnvConfig.max_rot_step (the action's rotation scale)
+
+
+def _rz(angle: np.ndarray) -> np.ndarray:
+    c, s = np.cos(angle), np.sin(angle)
+    R = np.zeros((len(angle), 3, 3))
+    R[:, 0, 0], R[:, 0, 1], R[:, 1, 0], R[:, 1, 1], R[:, 2, 2] = c, -s, s, c, 1.0
+    return R
+
+
+def rpy_to_mat_batch(rpy: np.ndarray) -> np.ndarray:
+    """Batched transforms.rpy_to_mat: R = Rz(yaw) Ry(pitch) Rx(roll)."""
+    rpy = np.asarray(rpy, float).reshape(-1, 3)
+    cr, sr, cp, sp, cy, sy = (f(rpy[:, i]) for i in range(3) for f in (np.cos, np.sin))
+    R = np.empty((len(rpy), 3, 3))
+    R[:, 0] = np.stack([cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr], 1)
+    R[:, 1] = np.stack([sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr], 1)
+    R[:, 2] = np.stack([-sp, cp * sr, cp * cr], 1)
+    return R
+
+
+def wall_yaw(states: np.ndarray) -> np.ndarray:
+    """Yaw psi of the wall target about the base z-axis, from the state's target_rot6. The target's
+    z-axis is the wall's inward normal (-x for the easy layout, so psi = 0 there)."""
+    s = np.asarray(states, float).reshape(-1, states.shape[-1])
+    r6 = s[:, state_slices(s.shape[1])["target_rot6"]]
+    n = np.cross(r6[:, :3], r6[:, 3:])
+    return np.arctan2(-n[:, 1], -n[:, 0])
+
+
+def rotate_states_z(states: np.ndarray, angle: np.ndarray) -> np.ndarray:
+    """Rotate the base-frame parts of (N, D) states by Rz(angle) (per row)."""
+    s = np.array(states, np.float64).reshape(-1, states.shape[-1])
+    R, sl = _rz(np.broadcast_to(angle, len(s))), state_slices(s.shape[1])
+    for k in BASE_FRAME_KEYS:
+        x = s[:, sl[k]]
+        for j in range(0, x.shape[1], 3):  # each 3-vector (a position, or a rotation-matrix column)
+            x[:, j:j + 3] = np.einsum("nij,nj->ni", R, x[:, j:j + 3])
+        s[:, sl[k]] = x
+    return s.astype(np.float32)
+
+
+def rotate_actions_z(actions: np.ndarray, angle: np.ndarray) -> np.ndarray:
+    """Rotate (..., 7) base-frame delta actions by Rz(angle): position delta v -> R v, rotation delta
+    D -> R D R^T (the env applies D on the left, in the base frame). Suction bit unchanged. The rotated
+    position / roll-pitch components can exceed [-1, 1] (by up to sqrt 2) -- see ActorNet.frame."""
+    a = np.array(actions, np.float64)
+    shape = a.shape
+    a = a.reshape(-1, 7)
+    ang = np.broadcast_to(np.asarray(angle, float).reshape(-1, *([1] * (len(shape) - 2))), shape[:-1]).reshape(-1)
+    R = _rz(ang)
+    a[:, :3] = np.einsum("nij,nj->ni", R, a[:, :3])
+    D = rpy_to_mat_batch(a[:, 3:6] * MAX_ROT_STEP)
+    a[:, 3:6] = mat_to_rpy_batch(R @ D @ np.transpose(R, (0, 2, 1))) / MAX_ROT_STEP
+    return a.reshape(shape).astype(np.float32)
+
+
+def dataset_to_wall_frame(D: dict) -> dict:
+    """Express a loaded dataset (load_many) in the wall frame, in place: observations, next
+    observations and actions are rotated by -psi, with psi from each transition's own state (the
+    target is fixed within an episode, so s, s' and a share one psi)."""
+    psi = wall_yaw(D["observations"])
+    D["observations"] = rotate_states_z(D["observations"], -psi)
+    D["next_observations"] = rotate_states_z(D["next_observations"], -psi)
+    D["actions"] = rotate_actions_z(D["actions"], -psi)
+    return D
+
+
 def state_from_obs(obs, state_dim: int = STATE_DIM) -> np.ndarray:
     """State (37-D v1 or 46-D v2) from a live env observation, using ONLY the deployable group
     (the panel and target poses are the estimates, which carry observation noise if enabled)."""

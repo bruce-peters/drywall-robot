@@ -25,7 +25,7 @@ from drywall_env.policies import ActorNet, action_chunks, save_actor  # noqa: E4
 from drywall_env.training_utils import (  # noqa: E402
     JsonlLogger, default_log_path, make_env, set_seed, snapshot_path, validation_rollouts,
 )
-from drywall_env.transitions import UMI_REWARD_TERMS, episode_slices, load_many  # noqa: E402
+from drywall_env.transitions import UMI_REWARD_TERMS, dataset_to_wall_frame, episode_slices, load_many  # noqa: E402
 
 
 def main():
@@ -48,12 +48,19 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
                     help="env used for the validation rollouts (hard: seeds 25000-25049, full region)")
+    ap.add_argument("--frame", choices=["base", "wall"], default="base",
+                    help="wall = states / actions rotated so the wall target is always straight ahead")
+    ap.add_argument("--head", choices=["mse", "gmm"], default="mse",
+                    help="gmm = Gaussian-mixture motion head (multimodal); mse = single-mode (default)")
+    ap.add_argument("--n-modes", type=int, default=5, help="mixture modes for --head gmm")
     args = ap.parse_args()
 
     set_seed(args.seed)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     log_path = args.log or default_log_path(args.out)
     D = load_many(args.data, reward_terms=UMI_REWARD_TERMS)  # refuses test seeds; rewards unused by BC
+    if args.frame == "wall":  # states and actions in the wall frame (ActorNet docstring)
+        dataset_to_wall_frame(D)
 
     # episodes -> train / val split (by episode, so the val loss measures generalisation)
     eps = episode_slices(D["episode_ends"])
@@ -69,7 +76,8 @@ def main():
     A = torch.as_tensor(chunks, device=dev)
     tr_t, va_t = torch.as_tensor(tr, device=dev), torch.as_tensor(va, device=dev)
 
-    actor = ActorNet(state_dim=D["observations"].shape[1], hidden=args.hidden, chunk=args.chunk).to(dev)
+    actor = ActorNet(state_dim=D["observations"].shape[1], hidden=args.hidden, chunk=args.chunk,
+                     frame=args.frame, head=args.head, n_modes=args.n_modes).to(dev)
     actor.norm.fit(D["observations"][tr])
     opt = torch.optim.AdamW(actor.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.steps)

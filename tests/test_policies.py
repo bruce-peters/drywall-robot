@@ -81,3 +81,39 @@ def test_bce_weight_scales_attach_loss():
     _, _, bce1 = actor.loss_per_sample(s, a)
     _, _, bce3 = actor.loss_per_sample(s, a, bce_weight=torch.full((3, 2), 3.0))
     torch.testing.assert_close(bce3, 3 * bce1)
+
+
+def test_wall_frame_policy_is_rotation_equivariant():
+    """Rotating the whole scene about the base z-axis rotates a wall-frame policy's actions with it,
+    and the wall frame puts the target straight ahead."""
+    from drywall_env import EnvConfig
+    from drywall_env.transitions import STATE_DIM_V2, rotate_actions_z, rotate_states_z, state_from_obs, wall_yaw
+
+    env = DrywallPlacementEnv(EnvConfig(challenge="hard"))
+    s = np.stack([state_from_obs(env.reset(seed=k)[0], STATE_DIM_V2) for k in range(4)])
+    env.close()
+    np.testing.assert_allclose(wall_yaw(rotate_states_z(s, -wall_yaw(s))), 0.0, atol=1e-6)
+    torch.manual_seed(0)
+    for head in ("mse", "gmm"):
+        actor = ActorNet(state_dim=STATE_DIM_V2, chunk=2, frame="wall", head=head)
+        actor.norm.fit(s)
+        pol = TorchPolicy(actor)
+        theta = np.radians(37.0)
+        a = pol.predict(s)
+        a_rot = pol.predict(rotate_states_z(s, theta))
+        np.testing.assert_allclose(a_rot, rotate_actions_z(a, theta), atol=1e-4)
+
+
+def test_gmm_head_shapes_and_loss_prefers_a_data_mode():
+    torch.manual_seed(0)
+    actor = ActorNet(chunk=3, head="gmm", n_modes=4)
+    s = torch.randn(5, STATE_DIM)
+    motion, logit = actor(s)
+    assert motion.shape == (5, 3, 6) and logit.shape == (5, 3)
+    assert torch.all(motion.abs() <= 1.0)
+    a = torch.zeros(5, 3, 7)
+    a[..., :6] = motion.detach()  # targets at the chosen mode's mean ...
+    near, _, _ = actor.loss_per_sample(s, a)
+    a[..., :6] = -motion.detach()  # ... are more likely than far-away targets
+    far, _, _ = actor.loss_per_sample(s, a)
+    assert torch.all(near < far)
