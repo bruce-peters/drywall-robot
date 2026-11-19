@@ -32,14 +32,14 @@ HARD_TESTS = {"in": (HARD_TEST_IN_SEEDS, "demo"), "ood": (HARD_TEST_OOD_SEEDS, "
 LABELS = {"scripted": "Scripted controller (no learning)"}
 
 
-def make_policy(spec: str, cfg):
+def make_policy(spec: str, cfg, release_threshold: float = 0.5):
     if spec == "scripted":
         if cfg.challenge == "hard":  # the demo-mode controller (deterministic per seed)
             pol = ScriptedPolicy(cfg)
             pol.ctrl, pol.name = make_scripted(cfg, mode="demo", seed=0), "scripted"
             return pol
         return ScriptedPolicy(cfg)
-    return load_policy(spec)
+    return load_policy(spec, release_threshold=release_threshold)
 
 
 def save_video(policy, seed: int, path: str, name: str, cfg=None):
@@ -79,6 +79,9 @@ def main():
     ap.add_argument("--challenge", choices=["easy", "hard"], default="easy")
     ap.add_argument("--test", choices=["in", "ood"], default="in",
                     help="hard only: in = seeds 30000-30099 inside the demos' region, ood = 31000-31099 outside")
+    ap.add_argument("--release-threshold", type=float, default=0.5,
+                    help="keep suction on only while p(attach) > this (tune on validation seeds with "
+                         "scripts/tune_release_threshold.py); results get the suffix _rt<value> if not 0.5")
     args = ap.parse_args()
 
     if args.challenge == "hard":
@@ -90,8 +93,10 @@ def main():
     env = DrywallPlacementEnv(cfg)
     table = []
     for spec in args.policy:
-        pol = make_policy(spec, env.cfg)
+        pol = make_policy(spec, env.cfg, args.release_threshold)
         name = Path(spec).stem if spec != "scripted" else "scripted"
+        if spec != "scripted" and args.release_threshold != 0.5:
+            name = f"{name}_rt{args.release_threshold:g}"
         if args.challenge == "hard":
             name = f"{name}_{args.test}"
         t0 = time.time()
@@ -100,7 +105,7 @@ def main():
         Path(args.results_dir).mkdir(exist_ok=True)
         with open(Path(args.results_dir) / f"{name}.json", "w") as f:
             json.dump({"policy": spec, "challenge": args.challenge, "test": args.test if args.challenge == "hard" else "test",
-                       "seeds": [seeds[0], seeds[-1]], "summary": s, "episodes": rows}, f, indent=1)
+                       "seeds": [seeds[0], seeds[-1]], "release_threshold": args.release_threshold, "summary": s, "episodes": rows}, f, indent=1)
         table.append((name, s))
         print(f"{name}: success {100 * s['success_rate']:.1f} % "
               f"(95% CI {100 * s['success_ci95'][0]:.0f}-{100 * s['success_ci95'][1]:.0f}), {s['seconds']:.0f} s",

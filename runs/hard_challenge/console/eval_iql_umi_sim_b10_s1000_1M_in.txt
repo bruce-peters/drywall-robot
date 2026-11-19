@@ -1,0 +1,8 @@
+iql_umi_sim_b10_s1000_1M_in: success 33.0 % (95% CI 25-43), 264 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_umi_sim_b10_s1000_1M_in | 33 % | 25-43 % | 166.6 | 10.30 | 41 % | 5 % | 400 |
+
+failure modes (episodes):
+  iql_umi_sim_b10_s1000_1M_in dropped 5  held_at_end 41  released_off_wall 7  released_misaligned 14

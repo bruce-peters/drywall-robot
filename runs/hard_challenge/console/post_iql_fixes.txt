@@ -1,0 +1,21 @@
+16:41:15 waiting for training
+20:13:16 training done; tuning release thresholds on validation seeds 25000-25049
+20:28:37 tune iql_umi_sim_fix_b1 exit 0
+20:28:37 tune iql_umi_sim_fix_b3 exit 0
+20:28:37 tune iql_umi_sim_fix_b10 exit 0
+20:28:37 best thresholds {'iql_umi_sim_fix_b1': 0.35, 'iql_umi_sim_fix_b3': 0.65, 'iql_umi_sim_fix_b10': 0.65}
+20:31:02 eval iql_umi_sim_fix_b1_in exit 0
+20:32:48 eval iql_umi_sim_fix_b3_in exit 0
+20:32:48 eval iql_umi_sim_fix_b10_in exit 0
+20:33:07 eval iql_umi_sim_b10_s1000_1M_in exit 0
+20:33:07 eval iql_umi_sim_fix_b1_rt_in exit 0
+20:33:07 eval iql_umi_sim_fix_b3_rt_in exit 0
+20:37:19 eval iql_umi_sim_fix_b10_rt_in exit 0
+20:38:10 eval iql_umi_sim_fix_b1_ood exit 0
+20:38:10 eval iql_umi_sim_fix_b3_ood exit 0
+20:38:11 eval iql_umi_sim_fix_b10_ood exit 0
+20:38:11 eval iql_umi_sim_b10_s1000_1M_ood exit 0
+20:38:11 eval iql_umi_sim_fix_b1_rt_ood exit 0
+20:42:07 eval iql_umi_sim_fix_b3_rt_ood exit 0
+20:42:07 eval iql_umi_sim_fix_b10_rt_ood exit 0
+20:42:07 ALL DONE

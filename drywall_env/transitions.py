@@ -344,6 +344,7 @@ def load_many(paths, reward_terms=None) -> dict:
               "episode_success", "episode_seed"):
         out[k] = np.concatenate([d[k] for d in parts])
     out["episode_ends"] = np.concatenate(ends)
+    out["source"] = np.concatenate([np.full(len(d["actions"]), i, np.int64) for i, d in enumerate(parts)])
     included = {tuple(d["meta"]["reward_terms_included"]) for d in parts}
     if len(included) > 1:
         raise ValueError(f"files use different reward definitions {included}; pass reward_terms to relabel")

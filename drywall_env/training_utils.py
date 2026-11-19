@@ -22,10 +22,10 @@ from .transitions import HARD_VAL_SEEDS, VAL_SEEDS
 
 
 class JsonlLogger:
-    def __init__(self, path):
+    def __init__(self, path, append: bool = False):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.f = open(self.path, "w", encoding="utf-8")
+        self.f = open(self.path, "a" if append else "w", encoding="utf-8")
         self.t0 = time.time()
 
     def log(self, kind: str, step: int, **values):

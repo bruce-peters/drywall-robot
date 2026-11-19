@@ -85,6 +85,14 @@ documented against the paper's equations:
 The actor *is* the BC network, so BC and IQL differ only in the per-sample weight. Training reads only the
 fixed dataset; no `env.step` is called for learning.
 
+**Hard-task IQL fixes** came after a diagnosis (Section 4):
+- reward scale 0.01 instead of 0.1;
+- 50/50 demo/sim batches;
+- release targets weighted ×10 in the suction loss;
+- 1M steps.
+
+Optionally, the release threshold p(attach) is tuned on validation seeds only.
+
 **Offline datasets.**
 - **Easy:** 1,000 episodes from scripted plus noisy-BC behaviour (57 % success).
 - **Hard:** 2,000 `explore` episodes (64 % success, 10 % drops, collisions in 41 %).
@@ -111,6 +119,7 @@ fixed dataset; no `env.step` is called for learning.
 | BC control | UMI + sim successes | 69 % (59–77) | 2 % |
 | IQL β3 / β10 | sim | 58 % / 61 % | 22 / 14 % |
 | **IQL β3** / β10 | UMI + sim | **71 %** / 68 % | 8 / 12 % |
+| IQL β3, release threshold tuned (0.65) | UMI + sim | **81 % (72–87)** | 8 % |
 
 **Hard task** (in = seeds 30000–30099 inside the demos' region; out = 31000–31099 outside):
 
@@ -121,17 +130,24 @@ fixed dataset; no `env.step` is called for learning.
 | **BC control** | UMI + sim successes | **55 % (45–64)** | 20 % (13–29) |
 | IQL β10, success 100 → 1000 | sim | 2 % → 16 % | 10 % → 19 % |
 | IQL β3, success 100 → 1000 | sim | 21 % → 8 % | 11 % → 14 % |
-| **IQL β10, success 1000** | UMI + sim | **39 % (30–49)** | **22 % (15–31)** |
+| IQL β10, success 1000 | UMI + sim | 39 % (30–49) | 22 % (15–31) |
+| IQL β10, same, 1M steps (ablation) | UMI + sim | 33 % (25–43) | 17 % (11–26) |
+| **IQL fixed β3** / β1 / β10 | UMI + sim, balanced | **65 % (55–74)** / 50 / 57 % | 26 / **32 %** / 19 % |
 
 Charts: `media/*/comparison*.png` and `media/*/training_*.png`. Per-episode results: `results/`.
 
 **Findings.**
 1. **Simulation data provides coverage that demonstrations lack.** BC on demos from a limited region scores
    0 % outside it (91 of 100 episodes never grasp). Every policy trained with simulated data generalizes
-   outside the demo region (20–22 % for the best).
-2. **Offline RL did not beat behaviour cloning on the same data** in either task: easy 71 % vs 69 % (BC
-   control) and 80 % (BC on demos); hard 39 % / 22 % vs 55 % / 20 %. RL changed *how* the policies failed
-   more than *how often*.
+   outside the demo region (20–32 % for the best).
+2. **Untuned offline RL did not beat behaviour cloning; tuned, it matched or edged past it.**
+   - **Before tuning:** easy 71 % vs 69 % (BC control) and 80 % (BC on demos); hard 39 % / 22 % vs
+     55 % / 20 %.
+   - **After the fixes:** hard IQL reached 65 % / 26 %. Paired on the same test seeds that is +36 / −10
+     episodes vs the old IQL (p < 0.001) and +31 / −21 vs the BC control (p = 0.21).
+   - On the easy task, a validation-tuned release threshold lifted IQL to 81 % (+10 / −0, p = 0.002).
+   - **Caveat:** at the new reward scale the β3 weights are nearly uniform (mean 1.01). Much of the gain may
+     come from the balanced, release-weighted data rather than from the advantage weighting itself.
 3. **Combining demos with sim data helps IQL** in both tasks (easy 71 vs 58–61 %; hard 39 vs 16 % in-region).
    For plain BC on the easy task, adding noisier sim successes hurt (80 → 69 %), while on the hard task it was
    essential (6 → 55 %).
@@ -146,10 +162,17 @@ Charts: `media/*/comparison*.png` and `media/*/training_*.png`. Per-episode resu
     demonstrated motions near the goal average to zero), or released 7 mm short of the wall.
   - **Easy IQL:** fixed the grasp (never-grasped 16–27 → 3–9) but released off the wall.
   - **Hard, BC on demos:** released mid-air (50 drops) or toggled suction at the target.
-  - **Hard, sim-trained policies:** dominated by **"held at end"**, the panel carried but never released.
-    It occurs in BC too, which has no reward, so it is a decision problem, not only reward hacking.
-- **Critic not converged.** In every IQL run the value estimates overshoot and are still drifting at 200k
-  steps (the paper uses 1M), and validation success swings ±15–20 % between checkpoints.
+  - **Hard, sim-trained policies:** dominated by **"held at end"**, the panel carried but never placed.
+    - Measured, it is mostly an approach failure: IQL's held episodes end a median 10–20 cm from the target.
+      The BC control's end 3 cm away.
+    - It occurs in BC too, which has no reward, so it is not only reward hacking.
+- **Diagnosing hard IQL** (which led to the fixes):
+  - **Saturated weights:** with success 1000 at reward × 0.1, 11–17 % of samples hit the exp(βA) clip.
+  - **Rare release:** 1 in 144–224 suction-on states.
+  - **Under-training:** validation was still rising at 200k steps.
+  - **Training longer alone did not help** (39 → 33 %); the combination of fixes did (65 %).
+- **Critic convergence.** At 200k steps the values still drift and validation swings ±15–20 % between
+  checkpoints. At 1M steps the values are nearly flat, but validation still swings about ±10 %.
 - **Collisions.** IQL policies collide more than the BC control trained on the same data (hard: 36–70 % vs
   19–34 % of episodes); they imitate the collision-heavy exploration data with only partial advantage
   reweighting. BC on the demos alone collides most (65–84 %), because it is mostly outside its training
@@ -182,5 +205,6 @@ Summarized from `docs/deployment_proposal.md`.
   bound ≥ 85 %, zero safety violations).
 
 **Bottom line.** A small number of human demonstrations teaches the motion; simulation is what extends it to
-layouts the demonstrations never covered. In this prototype offline RL did not add success on top of that,
-and the safety-critical contact and release should not be left to the learned policy.
+layouts the demonstrations never covered. In this prototype offline RL added
+success only after careful diagnosis and tuning, and not significantly beyond BC. The safety-critical
+contact and release should not be left to the learned policy.

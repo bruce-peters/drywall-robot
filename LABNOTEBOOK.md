@@ -982,3 +982,195 @@ seed 0 still succeeds at step 175, 3.05 mm, return −27.86; env tests pass)
   control out-of-demo success, best hard IQL success + failure (held at end), takeaways. Covers the doc's
   requirements: environment, data-collection rollout, learned policy, failure cases with interpretation.
   Cards checked visually.
+
+## 2026-11-18 — Diagnosing low IQL success (user: "propose fixes to get IQL success higher")
+
+Diagnostics only. Nothing retrained; scripts were in the scratchpad.
+- **Release is rare in the data.** Among suction-on states, the release action is
+  - 1 : 151 in easy UMI data and 1 : 173 in easy sim data;
+  - 1 : 144 in hard UMI data and 1 : 224 in hard sim data.
+  The suction BCE is unweighted with a fixed 0.5 threshold.
+- **Correction to my own earlier claim: hard-IQL "held at end" mostly does NOT happen at the target.**
+  The panel is carried but not placed.
+  - **Hard IQL held-at-end episodes:** median final position error is 104–205 mm; only 0–11 % are within 20 mm.
+  - **Hard BC control (UMI + sim):** median 31 mm, 75 % within 50 mm. This one is close to a release-decision
+    failure.
+  - **Easy IQL UMI+sim β3:** all 6 held episodes are within 20 mm and 1 mm from the wall. This is a genuine
+    release-decision failure.
+  - So the hard IQL problem is approach precision; the easy IQL problem is release timing. The report and
+    video card that say "carried to the wall but never released" need softening.
+- **Hard runs are undertrained.** Validation success is still rising at 200k steps (0 → 12–20 %); the paper uses
+  1M steps.
+- **Advantage weights saturate on hard with success = 1000.** The advantage std is about 2.0 (s1000) vs 1.0
+  (s100) and 0.2–0.4 (easy).
+  - With β = 10, 11–17 % of samples hit the exp-weight clip of 100, and the mean weight is 15–20.
+  - The actor is effectively trained on a noisy subset.
+  - Reward scale 0.1 was chosen for success = 100 and was never re-tuned for 1000.
+- **The critics are β-independent.** Q and V logs are identical across the β pairs (same seed, and the critic
+  never sees the actor), so a β sweep only needs to retrain the actor.
+- Proposals went to chat; nothing is implemented pending the user's decision.
+
+### [DECISION] IQL fixes 1–4 (user: "ok do 1-4. be autonomous until result")
+The user approved fixes 1–4. The sub-choices below are mine, made autonomously while the user was away.
+1. **Advantage weighting.** Use `--reward-scale 0.01` with hard success = 1000, so Q has the same range as the
+   s100 runs. Sweep β ∈ {1, 3, 10}. Target: under 2 % of samples at the exp-weight clip.
+2. **Longer training.** 1M steps instead of 200k (paper setting). Validation every 100k instead of 20k, so
+   validation does not dominate wall time.
+3. **Balanced sampling** (`--balance`): every batch draws an equal share from each `--data` file. With
+   UMI + sim that is 50 / 50 demo / sim, instead of about 20 / 80 by transition count.
+4. **Release weighting.**
+   - **Training** (`--release-weight 10`): BCE elements whose state has suction on and whose target is "off"
+     (the release and the steps after it inside the chunk) get weight 10.
+   - They are about 1 : 44 of suction-on chunk elements, so 10 only partly rebalances. Fully balancing (about
+     44) risks early releases, which are already easy IQL's largest failure.
+   - **Inference:** an optional `release_threshold` in `TorchPolicy`. While suction is on, keep it on only if
+     p(attach) > threshold. Grasping still uses 0.5.
+   - The threshold is tuned on VALIDATION seeds only (new `scripts/tune_release_threshold.py`), then tested
+     once on the test seeds. The default of 0.5 reproduces every earlier result.
+- **Runs.** Separate processes, one per β, rather than one shared critic. Each process trains identical critics:
+  wasteful on GPU, but it parallelises the CPU-bound validation rollouts and keeps the script simple.
+- **Ablation.** One extra run, `iql_umi_sim_b10_s1000_1M`, uses the old settings (scale 0.1, no balance, no
+  release weight) but 1M steps. It separates "trained longer" from fixes 1, 3 and 4.
+- **Scope.** Hard UMI + sim data only. On the easy challenge, fix 4 is applied as threshold tuning of the
+  existing policies, with no retraining.
+
+### IQL fixes: implementation and launch
+- **Code changes:**
+  - `ActorNet.loss_per_sample(bce_weight=)`.
+  - `TorchPolicy(release_threshold=)` and `load_policy(release_threshold=)`; the default 0.5 is identical to
+    before.
+  - `load_many` returns `source` (the file index per transition).
+  - `train_iql.py --balance --release-weight`.
+  - `eval_policy.py --release-threshold` (results suffix `_rt<v>`).
+  - New `scripts/tune_release_threshold.py` (validation seeds only).
+- **Tests:** two new (the threshold acts only on attached states; the BCE weight scales the loss). **40 passed.**
+- **Smoke test** (600 steps): release-weighted elements are 1.4 % of all chunk elements; source sizes UMI
+  109,260 / sim 649,725 transitions.
+- **Launched 4 parallel runs** (`runs/hard_challenge/console/*.txt`, about 87 steps/s each, so about 4 h
+  including validation every 100k):
+  - **Shared settings:** UMI + sim hard data, `--reward-terms umi --chunk 8 --n-exec 4 --steps 1000000
+    --rollout-every 100000`.
+  - `iql_umi_sim_fix_b{1,3,10}`: `--reward-scale 0.01 --balance --release-weight 10`.
+  - `iql_umi_sim_b10_s1000_1M`: the old settings (the 1M-step-only ablation). Its config diff vs the 200k
+    original is only steps, rollout_every and the new defaults.
+- **First check at 6.5k steps:**
+  - Advantage std is 0.13 at scale 0.01 vs 1.8 at 0.1.
+  - The exp-weight clip fraction is 0 / 0.06 / 0.4 % for β 1 / 3 / 10, vs 7 % for the old settings.
+  - Mean weight at β = 1 is 1.0, so it is nearly plain BC on balanced data; β = 10 is the meaningful setting.
+- **Easy challenge:** started threshold tuning for the 4 existing easy IQL policies on validation seeds
+  5000–5049, with thresholds {0.2, 0.35, 0.5, 0.65, 0.8, 0.9}.
+- **Easy-challenge release-threshold tuning** (validation seeds 5000–5049, 50 episodes per threshold; log in
+  `runs/easy_challenge/tune_release_threshold.txt`):
+
+  | policy | 0.2 | 0.35 | 0.5 | 0.65 | 0.8 | 0.9 | chosen |
+  |---|---|---|---|---|---|---|---|
+  | iql_umi_sim_b3 | 46 | 72 | 80 | **86** | 84 | 78 | 0.65 |
+  | iql_umi_sim_b10 | 58 | 64 | 68 | **70** | 64 | 60 | 0.65 |
+  | iql_sim_b3 | 46 | 58 | **74** | 66 | 68 | 64 | 0.5 (unchanged) |
+  | iql_sim_b10 | 54 | 68 | 70 | **74** | 74 | 72 | 0.65 |
+
+  - **Low thresholds hurt clearly:** the policy holds and "held at end" rises to 8–18.
+  - **Above 0.5 the gain is small** (+2 to +6 points, within the noise of 50 episodes). Releasing sooner trades
+    held-at-end for released-off-wall.
+  - Conclusion: on the easy task the suction head is roughly calibrated; release *timing / position*, not
+    reluctance, is the limit there.
+  - The chosen thresholds are evaluated once on the test seeds (`results/easy_challenge/*_rt0.65.json`).
+- **Easy test result for the tuned thresholds** (test seeds 10000–10099, evaluated once; log in
+  `runs/easy_challenge/eval_rt065.txt`). The paired comparison uses the same seeds; p is an exact McNemar
+  test.
+
+  | policy | 0.5 (before) | tuned (0.65) | episodes fixed / broken | p |
+  |---|---|---|---|---|
+  | iql_umi_sim_b3 | 71 % | **81 % (72–87)** | 10 / 0 | 0.002 |
+  | iql_umi_sim_b10 | 68 % | 68 % | 4 / 4 | 1.0 |
+  | iql_sim_b10 | 61 % | 60 % | 7 / 8 | 1.0 |
+
+  - **iql_umi_sim_b3 is now on par with BC on demos (80 %).** The fix is real on this policy:
+    released-off-wall went 14 → 9 and held-at-end 6 → 1.
+  - **The other two are unchanged.** Their failures are released-off-wall (27–28), which a threshold cannot fix.
+
+### IQL fix runs killed at about 600k steps; restarted with resume support
+- **What happened.** All four runs died at 09:59 when the Claude Code session ended. They were children of the
+  session's shell (`nohup` in Git Bash does not detach them on Windows). They had reached about 600k / 1M steps.
+  - **Partial validation** (full region, 50 episodes, %), step in thousands:
+    - fix_b1: 100k 30, 200k 18, 300k 26, 400k 26, 500k 26
+    - fix_b3: 18, 32, 6, 10, 32, 600k 34
+    - fix_b10: 10, 12, 16, 16, 24
+    - b10_s1000_1M: 8, 16, 2, 18, 16, 600k 18
+  - For reference, the original 200k b10_s1000 run validated at 18–24 % from 120k on.
+- **Not resumable.** Only actor snapshots were saved mid-run (no critics or optimizers), so the runs restarted
+  from step 0 with the same seed and settings.
+- **Fix 1: resume support.** `train_iql.py --resume`:
+  - At every validation step it saves the full training state (actor, critics, target, value, 3 optimizers,
+    LR schedule, CPU + CUDA RNG) to `checkpoints/<sub>/snapshots/<stem>/train_state.pt`, written then renamed.
+  - `--resume` loads it, truncates the log to that step and appends.
+  - Smoke-tested 200 → 300 steps. Bug found and fixed: `map_location="cuda"` moved the RNG ByteTensor to the
+    GPU, so it is now `.cpu()`.
+  - 40 tests pass.
+- **Fix 2: detached launch.** The runs are now launched with WMI `Win32_Process.Create` (`cmd /c … >>
+  console\<name>.txt`), outside the session's process tree, with `--resume`. If they are killed again,
+  re-running the same command continues from the last 100k step.
+- **Post-processing driver** (detached the same way): a scratchpad script `post_iql_fixes.py`, progress in
+  `runs/hard_challenge/console/post_iql_fixes.txt`. Once all 4 runs log `done`, it:
+  1. tunes the release threshold of the 3 fix runs on hard validation seeds 25000–25049 (full region);
+  2. evaluates all 4 runs once on test in (30000–30099) and test out (31000–31099) at 0.5;
+  3. also evaluates the fix runs at their tuned threshold, when it isn't 0.5.
+
+  It never looks at test seeds before choosing the threshold.
+
+### IQL fixes: results (hard runs finished 20:13; tuning and evaluation by the driver by 20:42)
+- **Training.** The restarted runs reproduced the killed runs' validation numbers exactly up to 600k
+  (deterministic).
+  - **Final validation** (full region, 50 episodes): fix_b1 26 %, fix_b3 30 %, fix_b10 24 %, ablation 26 %
+    (the 200k original ended at 20 %).
+  - **Final weight stats:** mean weight 0.99 / 1.01 / 1.44 and clip fraction 0 / 0.02 / 0.25 % for β 1 / 3 /
+    10. The ablation (scale 0.1) sat at mean weight 16.9 with 13 % clipped.
+- **Hard release-threshold tuning** (validation): best 0.35 for b1, 0.65 for b3, 0.65 for b10. The gains are
+  2–4 points over 0.5, which is noise.
+- **Test results** (100 episodes each; in = 30000–30099, out = 31000–31099):
+
+  | run | in | out | collisions in / out |
+  |---|---|---|---|
+  | BC control (reference) | 55 % | 20 % | 19 / 34 % |
+  | old best IQL b10_s1000 (200k) | 39 % | 22 % | 36 / 36 % |
+  | ablation: same, 1M steps | 33 % (25–43) | 17 % (11–26) | 41 / 50 % |
+  | fix_b1 | 50 % (40–60) | **32 % (24–42)** | 36 / 38 % |
+  | **fix_b3** | **65 % (55–74)** | 26 % (18–35) | 34 / 37 % |
+  | fix_b10 | 57 % (47–66) | 19 % (13–28) | 39 / 52 % |
+  | fix_b1 at threshold 0.35 | 51 % | 33 % | |
+  | fix_b3 at threshold 0.65 | 61 % | 26 % | |
+  | fix_b10 at threshold 0.65 | 55 % | 18 % | |
+
+- **Paired exact McNemar tests on the same seeds:**
+
+  | comparison | test set | fixed / broken | p |
+  |---|---|---|---|
+  | fix_b3 vs old IQL | in | +36 / −10 | **< 0.001** |
+  | fix_b3 vs BC control | in | +31 / −21 | 0.21 |
+  | fix_b3 vs fix_b1 | in | +37 / −22 | 0.07 |
+  | 1M ablation vs old IQL | in | +21 / −27 | 0.47 |
+  | fix_b1 vs BC control | out | +22 / −10 | 0.05 |
+  | everything else | out | | ≥ 0.10 |
+
+- **Model choice.** fix_b3 is the headline because it had the best final *validation* success (30 %). The test
+  agrees, but test results were not used to choose.
+- **Interpretation:**
+  - The fixes work in-region (39 → 65 %), and training longer alone does not explain it.
+  - Out of region nothing moved significantly.
+  - The four changes were not ablated individually.
+  - At reward × 0.01, β3's weights are almost uniform (mean 1.01), so the β3 actor is close to BC on all the
+    balanced, release-weighted data. Only β3 vs β1 (p = 0.07) hints that the advantage weighting adds
+    something.
+  - **Overcorrection, in hindsight:** the target was "under 2 % clipped", but scale 0.01 made the weights
+    nearly flat. A larger β (about 30) at scale 0.01 would be the natural next run.
+  - **Hard held-at-end** (fix_b3: 11 in / 34 out) is still an approach-precision failure: median 13–15 cm from
+    the target, under 3 % within 20 mm. A threshold can't fix that. The wall-frame state (fix 6, not done)
+    targets it.
+- **Artifacts:**
+  - charts `media/hard_challenge/comparison_fixes_{in,ood}.png` and `training_iql_umi_sim_fix_b*.png`;
+  - clips `media/hard_challenge/iql_umi_sim_fix_b3_in_{success,failure}.mp4` (the evaluation re-run
+    reproduced 65 % exactly; the failure clip shows a held-at-end episode).
+- **Docs.** The submission video was rebuilt (3.0 min): cards 7 and 8 now show the fixed IQL and the corrected
+  "carried but never placed, a median ~13 cm off" interpretation, and the takeaway was updated. README
+  (headline, easy table, hard table, an "IQL fixes" subsection, findings 3–4) and the technical report were
+  updated to match.

@@ -65,13 +65,15 @@ class ActorNet(nn.Module):
         out = self.net(self.norm(s)).view(-1, self.chunk, 7)
         return torch.tanh(out[..., :6]), out[..., 6]
 
-    def loss_per_sample(self, s, a_chunk, attach_weight: float = 1.0):
+    def loss_per_sample(self, s, a_chunk, attach_weight: float = 1.0, bce_weight=None):
         """Per-sample negative log-likelihood surrogate: MSE on motion + BCE on attach,
-        averaged over the chunk. a_chunk (B, H, 7) with attach in {-1, +1}."""
+        averaged over the chunk. a_chunk (B, H, 7) with attach in {-1, +1}. bce_weight (B, H),
+        optional: per-element weights on the attach BCE (e.g. to up-weight the rare release)."""
         motion, logit = self(s)
         mse = ((motion - a_chunk[..., :6]) ** 2).sum(-1).mean(-1)
         bce = nn.functional.binary_cross_entropy_with_logits(
-            logit, (a_chunk[..., 6] > 0).float(), reduction="none").mean(-1)
+            logit, (a_chunk[..., 6] > 0).float(), reduction="none")
+        bce = (bce * bce_weight).mean(-1) if bce_weight is not None else bce.mean(-1)
         return mse + attach_weight * bce, mse, bce
 
     def config(self) -> dict:
@@ -95,11 +97,15 @@ def action_chunks(actions: np.ndarray, episode_ends: np.ndarray, chunk: int) -> 
 class TorchPolicy:
     """Runs an ActorNet in the env: obs -> 37-D state -> action, with receding-horizon chunks."""
 
-    def __init__(self, actor: ActorNet, n_exec: int | None = None, device="cpu", name="policy"):
+    def __init__(self, actor: ActorNet, n_exec: int | None = None, device="cpu", name="policy",
+                 release_threshold: float = 0.5):
         self.actor = actor.to(device).eval()
         self.device = device
         self.n_exec = n_exec or actor.chunk
         self.name = name
+        # While suction is on, keep it on only if p(attach) > release_threshold (grasping always
+        # uses 0.5). 0.5 = the plain classifier; tuned on validation seeds only.
+        self.release_threshold = release_threshold
         self._queue: deque = deque()
 
     def reset(self):
@@ -108,9 +114,14 @@ class TorchPolicy:
     @torch.no_grad()
     def predict(self, states: np.ndarray) -> np.ndarray:
         """Batched: (B, 37) -> (B, H, 7) actions."""
+        from .transitions import state_slices
+
         s = torch.as_tensor(np.asarray(states, np.float32), device=self.device).view(-1, self.actor.state_dim)
         motion, logit = self.actor(s)
-        attach = torch.where(logit > 0, 1.0, -1.0).unsqueeze(-1)
+        attached = s[:, state_slices(self.actor.state_dim)["attached"]].view(-1, 1) > 0.5
+        rel = torch.logit(torch.tensor(float(self.release_threshold), device=s.device))
+        thr = torch.where(attached, rel, torch.zeros((), device=s.device))
+        attach = torch.where(logit > thr, 1.0, -1.0).unsqueeze(-1)
         return torch.cat([motion, attach], -1).cpu().numpy()
 
     def act(self, obs) -> np.ndarray:
@@ -146,11 +157,11 @@ def save_actor(path, actor: ActorNet, extra: dict | None = None):
     torch.save({"config": actor.config(), "state_dict": actor.state_dict(), "extra": extra or {}}, path)
 
 
-def load_policy(path, device="cpu", n_exec: int | None = None) -> TorchPolicy:
+def load_policy(path, device="cpu", n_exec: int | None = None, release_threshold: float = 0.5) -> TorchPolicy:
     ck = torch.load(path, map_location=device, weights_only=False)
     actor = ActorNet(**ck["config"])
     actor.load_state_dict(ck["state_dict"])
     pol = TorchPolicy(actor, n_exec=n_exec or ck["extra"].get("n_exec"), device=device,
-                      name=Path(path).stem)
+                      name=Path(path).stem, release_threshold=release_threshold)
     pol.extra = ck["extra"]
     return pol

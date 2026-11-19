@@ -41,13 +41,22 @@ Target critics: theta_target <- (1 - alpha) * theta_target + alpha * theta  (Pol
 Defaults follow the paper's MuJoCo locomotion settings: tau = 0.7, beta = 3, gamma = 0.99,
 lr = 3e-4, batch 256, cosine-decayed actor learning rate. Rewards are multiplied by
 --reward-scale (default 0.1) so that Q stays O(10) here (step costs ~ -0.5, success +100); the
-paper likewise rescales rewards per domain.
+paper likewise rescales rewards per domain. With the hard challenge's success = +1000 use
+--reward-scale 0.01, otherwise the advantages are so spread that exp(beta * A) saturates at the clip.
+
+Two optional additions (not in the paper; see LABNOTEBOOK, "IQL fixes 1-4"):
+  --balance            equal share of every batch from each --data file (e.g. 50/50 UMI demos / sim).
+  --release-weight W   weight W on attach-BCE elements whose state has suction on and whose target is
+                       'off'. The release is ~1 in 150-220 suction-on states, so an unweighted BCE is
+                       biased towards holding. Inside eq. (7) this multiplies -log pi for those
+                       elements, i.e. a class-balanced Bernoulli likelihood.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
+import json
 import sys
 import time
 from pathlib import Path
@@ -62,7 +71,7 @@ from drywall_env.training_utils import (  # noqa: E402
     JsonlLogger, default_log_path, make_env, set_seed, snapshot_path, validation_rollouts,
 )
 from drywall_env.transitions import (  # noqa: E402
-    REWARD_TERMS, STATE_DIM, UMI_REWARD_TERMS, load_many,
+    REWARD_TERMS, STATE_DIM, UMI_REWARD_TERMS, load_many, state_slices,
 )
 
 EXP_ADV_MAX = 100.0
@@ -120,10 +129,16 @@ def main():
     ap.add_argument("--reward-scale", type=float, default=0.1)
     ap.add_argument("--chunk", type=int, default=1, help="actor action chunk (weighted by A(s_t, a_t))")
     ap.add_argument("--n-exec", type=int, default=None)
+    ap.add_argument("--balance", action="store_true",
+                    help="each batch draws an equal share from every --data file (e.g. 50/50 UMI demos / sim)")
+    ap.add_argument("--release-weight", type=float, default=1.0,
+                    help="weight on attach-BCE elements with suction on and target 'off' (the rare release)")
     ap.add_argument("--log-every", type=int, default=500)
     ap.add_argument("--rollout-every", type=int, default=20_000, help="validation rollouts (0 = off)")
     ap.add_argument("--rollout-episodes", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from the training state saved at the last validation step, if any")
     ap.add_argument("--challenge", choices=["easy", "hard"], default="easy",
                     help="env used for the validation rollouts (hard: seeds 25000-25049, full region)")
     args = ap.parse_args()
@@ -139,6 +154,18 @@ def main():
     A_chunk = T(action_chunks(D["actions"], D["episode_ends"], args.chunk))
     R = T(D["rewards"]) * args.reward_scale
     DONE = T(D["terminals"].astype(np.float32))
+    # Release up-weighting: the release is ~1 in 150-220 suction-on states, so an unweighted BCE
+    # is biased towards "keep holding". Weight the 'off' targets of chunks that start attached.
+    attached = S[:, state_slices(S.shape[1])["attached"]].view(-1, 1) > 0.5
+    BCE_W = 1.0 + (args.release_weight - 1.0) * (attached & (A_chunk[..., 6] <= 0)).float()
+    # Balanced sampling: index pools per source file, equal share of each batch from each.
+    SRC = [torch.nonzero(T(D["source"], torch.int64) == i).squeeze(1) for i in range(len(args.data))]
+
+    def sample_batch():
+        if not args.balance:
+            return torch.randint(N, (args.batch,), device=dev)
+        k = [args.batch // len(SRC) + (i < args.batch % len(SRC)) for i in range(len(SRC))]
+        return torch.cat([p[torch.randint(len(p), (n,), device=dev)] for p, n in zip(SRC, k)])
 
     # Networks. One state normalizer (fit on the dataset) shared by actor, critics and value.
     sdim = D["observations"].shape[1]  # 37 (easy, state v1) or 46 (hard, state v2)
@@ -155,17 +182,41 @@ def main():
     a_opt = torch.optim.Adam(params(actor), lr=args.lr)
     a_sched = torch.optim.lr_scheduler.CosineAnnealingLR(a_opt, args.steps)
 
-    log = JsonlLogger(args.log or default_log_path(args.out))
-    log.log("config", 0, **vars(args), n_transitions=N, n_episodes=len(D["episode_ends"]),
-            reward_terms_included=D["reward_terms_included"] if terms is None else list(terms),
-            terminal_frac=float(D["terminals"].mean()), device=dev)
+    # Full training state (all networks, optimizers, RNG) at every validation step, so a run killed
+    # mid-way can continue with --resume instead of restarting.
+    state_path = snapshot_path(args.out, 0).with_name("train_state.pt")
+    start = 1
+    log_path = Path(args.log or default_log_path(args.out))
+    if args.resume and state_path.exists():
+        st = torch.load(state_path, map_location=dev, weights_only=False)
+        for m, k in ((actor, "actor"), (qf, "qf"), (q_target, "q_target"), (vf, "vf"), (q_opt, "q_opt"),
+                     (v_opt, "v_opt"), (a_opt, "a_opt"), (a_sched, "a_sched")):
+            m.load_state_dict(st[k])
+        torch.set_rng_state(st["rng"].cpu())
+        if dev == "cuda":
+            torch.cuda.set_rng_state_all([r.cpu() for r in st["cuda_rng"]])
+        start = st["step"] + 1
+        # keep the log up to the resumed step and append from there
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        keep = [ln for ln in lines if json.loads(ln)["step"] <= st["step"] and json.loads(ln)["kind"] != "done"]
+        log_path.write_text("".join(ln + "\n" for ln in keep), encoding="utf-8")
+        print(f"resumed from {state_path} at step {st['step']}", flush=True)
+    log = JsonlLogger(log_path, append=start > 1)
+    if start > 1:
+        log.log("resume", start - 1)
+    else:
+        log.log("config", 0, **vars(args), n_transitions=N, n_episodes=len(D["episode_ends"]),
+                reward_terms_included=D["reward_terms_included"] if terms is None else list(terms),
+                terminal_frac=float(D["terminals"].mean()), device=dev,
+                release_elem_frac=float((BCE_W > 1).float().mean()) if args.release_weight != 1 else 0.0,
+                source_sizes=[len(p) for p in SRC])
     print(f"IQL on {N} transitions / {len(D['episode_ends'])} episodes from {args.data}; "
           f"reward terms {terms or D['reward_terms_included']}; device {dev}", flush=True)
 
     env = make_env(args.challenge) if args.rollout_every else None
     acc, t0 = [], time.time()
-    for step in range(1, args.steps + 1):
-        b = torch.randint(N, (args.batch,), device=dev)
+    for step in range(start, args.steps + 1):
+        b = sample_batch()
         s, a, r, s2, done = S[b], A[b], R[b], S2[b], DONE[b]
 
         # --- value: eq. (5), expectile regression of V(s) towards min-target-Q(s, a)
@@ -189,7 +240,7 @@ def main():
 
         # --- policy: eq. (7), advantage-weighted regression with the BC loss as -log pi
         w = torch.exp(args.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
-        nll, _, _ = actor.loss_per_sample(s, A_chunk[b])
+        nll, _, _ = actor.loss_per_sample(s, A_chunk[b], bce_weight=BCE_W[b])
         a_loss = (w * nll).mean()
         a_opt.zero_grad(set_to_none=True)
         a_loss.backward()
@@ -226,6 +277,13 @@ def main():
                                                                     "n_exec": args.n_exec or args.chunk})
             actor.train()
             log.log("val_rollout", step, **sm)
+            tmp = state_path.with_suffix(".tmp")  # write-then-rename: a kill mid-save keeps the old state
+            torch.save({"step": step, "actor": actor.state_dict(), "qf": qf.state_dict(),
+                        "q_target": q_target.state_dict(), "vf": vf.state_dict(), "q_opt": q_opt.state_dict(),
+                        "v_opt": v_opt.state_dict(), "a_opt": a_opt.state_dict(), "a_sched": a_sched.state_dict(),
+                        "rng": torch.get_rng_state(),
+                        "cuda_rng": torch.cuda.get_rng_state_all() if dev == "cuda" else None}, tmp)
+            tmp.replace(state_path)
             print(f"step {step:7d}  VAL ROLLOUTS success {100 * sm['success_rate']:.0f} %  "
                   f"pos {sm['pos_error_mm_mean']:.1f} mm  collisions {100 * sm['collision_rate']:.0f} %", flush=True)
 

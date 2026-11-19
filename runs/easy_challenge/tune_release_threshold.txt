@@ -1,0 +1,28 @@
+iql_umi_sim_b3               thr 0.20: val success  46.0 %  never_grasped 3 held_at_end 18 released_off_wall 5 released_misaligned 1
+iql_umi_sim_b3               thr 0.35: val success  72.0 %  never_grasped 3 held_at_end 2 released_off_wall 9
+iql_umi_sim_b3               thr 0.50: val success  80.0 %  never_grasped 3 released_off_wall 7
+iql_umi_sim_b3               thr 0.65: val success  86.0 %  never_grasped 3 released_off_wall 4
+iql_umi_sim_b3               thr 0.80: val success  84.0 %  never_grasped 3 released_off_wall 5
+iql_umi_sim_b3               thr 0.90: val success  78.0 %  never_grasped 3 released_off_wall 8
+  -> best threshold 0.65 (86 % on validation)
+iql_umi_sim_b10              thr 0.20: val success  58.0 %  never_grasped 1 held_at_end 8 released_off_wall 12
+iql_umi_sim_b10              thr 0.35: val success  64.0 %  never_grasped 1 held_at_end 3 released_off_wall 14
+iql_umi_sim_b10              thr 0.50: val success  68.0 %  never_grasped 1 held_at_end 1 released_off_wall 14
+iql_umi_sim_b10              thr 0.65: val success  70.0 %  never_grasped 1 released_off_wall 13 released_misaligned 1
+iql_umi_sim_b10              thr 0.80: val success  64.0 %  never_grasped 1 released_off_wall 15 released_misaligned 2
+iql_umi_sim_b10              thr 0.90: val success  60.0 %  never_grasped 1 released_off_wall 17 released_misaligned 2
+  -> best threshold 0.65 (70 % on validation)
+iql_sim_b3                   thr 0.20: val success  46.0 %  never_grasped 6 held_at_end 17 released_off_wall 4
+iql_sim_b3                   thr 0.35: val success  58.0 %  never_grasped 6 held_at_end 12 released_off_wall 3
+iql_sim_b3                   thr 0.50: val success  74.0 %  never_grasped 6 held_at_end 5 released_off_wall 2
+iql_sim_b3                   thr 0.65: val success  66.0 %  never_grasped 6 held_at_end 4 released_off_wall 6 released_misaligned 1
+iql_sim_b3                   thr 0.80: val success  68.0 %  never_grasped 6 held_at_end 1 released_off_wall 8 released_misaligned 1
+iql_sim_b3                   thr 0.90: val success  64.0 %  never_grasped 6 held_at_end 1 released_off_wall 10 released_misaligned 1
+  -> best threshold 0.5 (74 % on validation)
+iql_sim_b10                  thr 0.20: val success  54.0 %  never_grasped 1 held_at_end 12 released_off_wall 7 released_misaligned 3
+iql_sim_b10                  thr 0.35: val success  68.0 %  never_grasped 1 held_at_end 8 released_off_wall 7
+iql_sim_b10                  thr 0.50: val success  70.0 %  never_grasped 1 held_at_end 4 released_off_wall 10
+iql_sim_b10                  thr 0.65: val success  74.0 %  never_grasped 1 held_at_end 2 released_off_wall 10
+iql_sim_b10                  thr 0.80: val success  74.0 %  never_grasped 1 held_at_end 1 released_off_wall 11
+iql_sim_b10                  thr 0.90: val success  72.0 %  never_grasped 1 held_at_end 1 released_off_wall 12
+  -> best threshold 0.65 (74 % on validation)

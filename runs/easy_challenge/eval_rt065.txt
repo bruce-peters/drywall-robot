@@ -1,0 +1,14 @@
+iql_umi_sim_b3_rt0.65: success 81.0 % (95% CI 72-87), 75 s
+iql_umi_sim_b10_rt0.65: success 68.0 % (95% CI 58-76), 79 s
+iql_sim_b10_rt0.65: success 60.0 % (95% CI 50-69), 86 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_umi_sim_b3_rt0.65 | 81 % | 72-87 % | 84.4 | 9.23 | 8 % | 0 % | 199 |
+| iql_umi_sim_b10_rt0.65 | 68 % | 58-76 % | 31.1 | 2.93 | 12 % | 0 % | 210 |
+| iql_sim_b10_rt0.65 | 60 % | 50-69 % | 54.3 | 5.95 | 13 % | 0 % | 227 |
+
+failure modes (episodes):
+  iql_umi_sim_b3_rt0.65 never_grasped 9  held_at_end 1  released_off_wall 9
+  iql_umi_sim_b10_rt0.65 never_grasped 3  held_at_end 1  released_off_wall 28
+  iql_sim_b10_rt0.65 never_grasped 5  held_at_end 5  released_off_wall 27  released_misaligned 3

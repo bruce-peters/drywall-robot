@@ -2,11 +2,16 @@
 
 **Part B (UMI → BC) and Part C (offline RL / IQL)** start at "Part B" below; the **hard challenge** (wall and
 rack anywhere around the robot) has its own section. Headlines on 100 held-out test episodes each:
-- **Easy:** scripted 100 %, **BC on UMI demos 80 %**, **IQL on UMI + sim data 71 %**. RL removed BC's grasp
-  failures but added release failures.
-- **Hard:** BC on the limited demos 6 % inside / **0 % outside** their region. Adding sim data: BC 55 % / 20 %,
-  **IQL 39 % / 22 %**. Sim data is what lets a policy work outside the demos' coverage; offline RL still
-  didn't beat BC on the same data. Scripted controller 99 % / 92 %.
+- **Easy:** scripted 100 %, **BC on UMI demos 80 %**, **IQL on UMI + sim data 71 %**. With a release
+  threshold tuned on validation seeds, IQL reaches 81 %. RL removed BC's grasp failures but added release
+  failures.
+- **Hard:** BC on the limited demos 6 % inside / **0 % outside** their region.
+  - Adding sim data: BC 55 % / 20 %, IQL 39 % / 22 %.
+  - **IQL after diagnosis and fixes: 65 % / 26 %.** The fixes were reward rescaling, 50/50 demo/sim batches,
+    an up-weighted release and 1M steps; see "IQL fixes" below.
+  - Sim data is what lets a policy work outside the demos' coverage. Tuned IQL now matches or beats BC on the
+    same data, but not significantly (p = 0.21).
+  - Scripted controller 99 % / 92 %.
 - **Part D** deployment proposal: [`docs/deployment_proposal.md`](docs/deployment_proposal.md).
 - **Technical report (draft):** [`docs/technical_report.md`](docs/technical_report.md).
 - **Submission video (3 min):** [`media/submission_video.mp4`](media/submission_video.mp4), built by
@@ -352,6 +357,13 @@ Kostrikov et al., ICLR 2022 (arXiv:2110.06169); the docstring derives each loss.
 | IQL β = 10 — sim only | sim offline data | 61 % (51–70) | 7.3 mm | 14 % | never grasped 5, held 10, off wall 21, misaligned 3 |
 | **IQL β = 3 — combined** | UMI + sim | **71 % (61–79)** | 4.9 mm | 8 % | never grasped 9, held 6, off wall 14 |
 | IQL β = 10 — combined | UMI + sim | 68 % (58–76) | 5.2 mm | 12 % | never grasped 3, held 6, off wall 22, misaligned 1 |
+| IQL β = 3 — combined, release threshold 0.65 | UMI + sim | **81 % (72–87)** | 4.4 mm | 8 % | never grasped 9, held 1, off wall 9 |
+
+The last row is the same network as the β = 3 combined row. Its suction is kept on only while
+p(attach) > 0.65 instead of 0.5; the threshold was chosen on validation seeds 5000–5049 and tested once
+(`scripts/tune_release_threshold.py`, `eval_policy.py --release-threshold`). The same procedure left IQL β10
+combined (68 %) and sim-only β10 (61 → 60 %) unchanged; sim-only β3's best threshold was 0.5. See
+"IQL fixes" in the hard-challenge section.
 
 Mean episode lengths: 171 (scripted), 196 (BC H=8) and 210–231 (IQL) steps; 300 is the time-out. No policy
 dropped a panel on the test seeds. Charts: `media/easy_challenge/comparison.png` and `media/easy_challenge/training_*.png`. Videos:
@@ -361,7 +373,8 @@ dropped a panel on the test seeds. Charts: `media/easy_challenge/comparison.png`
 **Findings.**
 1. **Offline RL did not beat behaviour cloning on success rate.** The best IQL policy (71 %) and BC on the
    demos (80 %) overlap in their confidence intervals, and BC's point estimate is higher. With 100 trials we
-   can't distinguish them; we can say IQL is not clearly better.
+   can't distinguish them; we can say IQL is not clearly better. With a release threshold tuned on
+   validation seeds, the same IQL network reaches 81 %, level with BC.
 2. **RL changes *how* the policy fails.** IQL largely removes BC's fixed point: "never grasped" drops from
    16–27 to 3–9. That's the failure a reward can fix and a regression loss can't. But IQL adds release
    failures: still holding the panel at time-out (6–12), or releasing it more than 2 mm off the wall (14–22,
@@ -456,7 +469,13 @@ The hard challenge tests it:
 | IQL β3, success 1000 | sim | 8 % (4–15) | 14 % (9–22) | 59 / 57 % | held 40 / 66, never grasped 30 / 5 |
 | IQL β10, success 1000 | sim | 16 % (10–24) | 19 % (13–28) | 51 / 44 % | held 67 / 61 |
 | IQL β3, success 1000 | UMI + sim | 19 % (13–28) | 16 % (10–24) | 49 / 53 % | held 54 / 65 |
-| **IQL β10, success 1000** | UMI + sim | **39 % (30–49)** | **22 % (15–31)** | 36 / 36 % | held 38 / 64 |
+| IQL β10, success 1000 | UMI + sim | 39 % (30–49) | 22 % (15–31) | 36 / 36 % | held 38 / 64 |
+| IQL β10, success 1000, 1M steps (ablation) | UMI + sim | 33 % (25–43) | 17 % (11–26) | 41 / 50 % | held 41 / 61 |
+| IQL **fixed** β1 | UMI + sim, balanced | 50 % (40–60) | **32 % (24–42)** | 36 / 38 % | held 17 / 35 |
+| **IQL fixed β3** | UMI + sim, balanced | **65 % (55–74)** | 26 % (18–35) | 34 / 37 % | off wall 15 / 17, held 11 / 34 |
+| IQL fixed β10 | UMI + sim, balanced | 57 % (47–66) | 19 % (13–28) | 39 / 52 % | held 14 / 39, off wall 14 / 16 |
+
+"Fixed" = reward × 0.01, 50/50 demo/sim batches, release BCE weight 10, 1M steps (see "IQL fixes" below).
 
 - **Charts:** `media/hard_challenge/comparison_in.png`, `comparison_ood.png` and `training_*.png`.
 - **Videos (labelled):** `media/hard_challenge/*_success.mp4` / `*_failure.mp4`.
@@ -466,20 +485,25 @@ The hard challenge tests it:
 **Findings.**
 1. **Demos alone don't cover deployment, and sim data fixes coverage.** BC on the demos scores **0 %
    outside** their region: 91 of 100 episodes never even grasp, because the policy has never seen a rack
-   there. Every policy that saw sim data succeeds outside the demo region (20–22 % for the best). This is the
+   there. Every policy that saw sim data succeeds outside the demo region (20–32 % for the best). This is the
    task doc's central claim, measured.
 2. **On this task, few demos aren't enough even inside their own region.** BC on 449 demos reaches only 6 %
    in-region. It learns the motion, but the **suction decision generalizes badly** across widely varying
    layouts: premature mid-air release (50 drops) and on/off flicker at the target. Adding the sim successes
    (BC control) raises it to 55 %.
 3. **Offline RL vs BC on the same data:**
-   - The best IQL (UMI + sim, β10) is **below** the BC control in-region (39 % vs 55 %, CIs barely overlap) and
-     **equal** outside it (22 % vs 20 %).
-   - As in the easy task, IQL did not beat filtered BC.
+   - **Before the fixes**, the best IQL (UMI + sim, β10) was **below** the BC control in-region (39 % vs 55 %)
+     and **equal** outside it (22 % vs 20 %).
+   - **After the fixes**, IQL β3 reaches **65 % in-region**. Paired on the same test seeds that is +36 / −10
+     episodes vs the old IQL (p < 0.001) and +31 / −21 vs the BC control (p = 0.21, not significant).
+   - β1 is best outside the region (32 % vs BC's 20 %, p = 0.05, borderline).
    - Combining UMI demos with sim data again helped IQL (39 / 22 % vs 16 / 19 % for sim only at β10).
-4. **"Held at end" dominates every learned policy: the panel is carried but never released.**
+4. **"Held at end" is the main failure: the panel is carried but never placed.**
+   - It is mostly **not** a refusal to release. In IQL's held-at-end episodes the panel ends a median
+     10–20 cm from the target, and only 0–11 % are within 20 mm. Only the BC control's are close (median
+     31 mm).
    - BC shows it too (36–46 episodes), and BC has no reward, so it is **not only reward hacking**. The
-     learned policies struggle with the release decision and with the last centimetres of alignment.
+     learned policies struggle with the last centimetres of the approach more than with the release itself.
    - **Reward ablation** (success +100 → +1000, everything else equal):
      - β10, sim only: in-region success 2 % → 16 % (CIs don't overlap), out 10 % → 19 %;
      - β3, sim only: 21 % → 8 % in-region (more never-grasped), 11 % → 14 % out.
@@ -491,8 +515,42 @@ The hard challenge tests it:
    This supports the Part D recommendation: learned policies for gross motion and carrying, and a verified,
    force-controlled routine for the final contact and release.
 
+**IQL fixes (diagnosis → four changes; LABNOTEBOOK "Diagnosing low IQL success").**
+- **Diagnosis:**
+  - **Advantage weights saturated.** With success = 1000 and reward × 0.1, the advantage std was about 2, and
+    at β10 11–17 % of samples hit the exp-weight clip.
+  - **Release is rare in the data:** 1 in 144–224 suction-on states.
+  - **Validation was still rising at 200k steps.**
+  - **Hard "held at end" was mostly an approach failure, not a release failure.**
+- **Changes:**
+  1. `--reward-scale 0.01`, with a β sweep {1, 3, 10};
+  2. 1M steps;
+  3. `--balance`: an equal share of each batch from each data file (50/50 UMI / sim);
+  4. `--release-weight 10` on the suction BCE of release targets, plus an optional inference
+     `release_threshold` tuned on validation seeds only (`scripts/tune_release_threshold.py`).
+- **What helped:**
+  - The combination took in-region success from 39 % to 65 %.
+  - **Training longer alone did not help** (ablation: 33 % / 17 %).
+  - **Release-threshold tuning** made no difference on the hard task (validation gains of 2–4 points; test
+    within ±4). On the easy task it lifted IQL UMI+sim β3 from 71 % to **81 %** (+10 / −0 test episodes,
+    p = 0.002) and left the other easy IQL policies unchanged.
+- **Caveat:** at reward × 0.01 the advantages are small (std about 0.13), so β3's mean sample weight is 1.01.
+  The β3 actor is close to BC on all the balanced, release-weighted data. Its gain over β1 (65 vs 50 %
+  in-region, p = 0.07) is the only evidence that the advantage weighting itself matters, and it is weak. The
+  four changes were not ablated individually; only "1M steps alone" was.
+- **Charts:** `media/hard_challenge/comparison_fixes_in.png` / `comparison_fixes_ood.png`,
+  `training_iql_umi_sim_fix_b*.png`.
+- **Commands:**
+  ```
+  python scripts/train_iql.py --data data/hard/umi_transitions_hard.npz data/hard/offline_sim_hard.npz       --reward-terms umi --challenge hard --chunk 8 --n-exec 4 --steps 1000000 --rollout-every 100000       --beta 3 --reward-scale 0.01 --balance --release-weight 10 --resume       --out checkpoints/hard_challenge/iql_umi_sim_fix_b3.pt
+  python scripts/tune_release_threshold.py --challenge hard checkpoints/hard_challenge/iql_umi_sim_fix_b3.pt
+  python scripts/eval_policy.py --challenge hard --test in --policy checkpoints/hard_challenge/iql_umi_sim_fix_b3.pt
+  ```
+  `--resume` continues from the full training state saved at the last validation step if a run is killed.
+
 **Limitations specific to the hard runs:**
-- **Critics not converged:** the values still drift at 200k steps, as in the easy task.
+- **Critics not converged:** the values still drift at 200k steps, as in the easy task. At 1M steps they are
+  close to flat.
 - **No hyperparameter tuning per task.**
 - **The success-1000 runs are the main comparison; the success-100 runs are an ablation.** For IQL on UMI +
   sim, only the success-1000 runs exist: the success-100 versions were stopped minutes in, when the reward was

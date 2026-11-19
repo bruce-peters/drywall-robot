@@ -1,0 +1,8 @@
+iql_umi_sim_fix_b3_ood: success 26.0 % (95% CI 18-35), 183 s
+
+| policy | success | 95% CI | pos err (mm) | ori err (deg) | collision | drop | length (steps) |
+|---|---|---|---|---|---|---|---|
+| iql_umi_sim_fix_b3_ood | 26 % | 18-35 % | 205.7 | 28.61 | 37 % | 4 % | 423 |
+
+failure modes (episodes):
+  iql_umi_sim_fix_b3_ood dropped 4  never_grasped 9  held_at_end 34  released_off_wall 17  released_misaligned 10

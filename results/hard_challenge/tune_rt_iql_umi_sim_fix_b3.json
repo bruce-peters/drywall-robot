@@ -1,0 +1,82 @@
+{
+ "checkpoint": "checkpoints/hard_challenge/iql_umi_sim_fix_b3.pt",
+ "seeds": [
+  25000,
+  25049
+ ],
+ "rows": [
+  {
+   "threshold": 0.2,
+   "success_rate": 0.32,
+   "failures": {
+    "dropped": 1,
+    "never_grasped": 6,
+    "held_at_end": 18,
+    "released_off_wall": 5,
+    "released_misaligned": 4,
+    "other": 0
+   }
+  },
+  {
+   "threshold": 0.35,
+   "success_rate": 0.32,
+   "failures": {
+    "dropped": 1,
+    "never_grasped": 6,
+    "held_at_end": 17,
+    "released_off_wall": 6,
+    "released_misaligned": 4,
+    "other": 0
+   }
+  },
+  {
+   "threshold": 0.5,
+   "success_rate": 0.3,
+   "failures": {
+    "dropped": 1,
+    "never_grasped": 6,
+    "held_at_end": 15,
+    "released_off_wall": 9,
+    "released_misaligned": 4,
+    "other": 0
+   }
+  },
+  {
+   "threshold": 0.65,
+   "success_rate": 0.34,
+   "failures": {
+    "dropped": 1,
+    "never_grasped": 6,
+    "held_at_end": 13,
+    "released_off_wall": 9,
+    "released_misaligned": 4,
+    "other": 0
+   }
+  },
+  {
+   "threshold": 0.8,
+   "success_rate": 0.3,
+   "failures": {
+    "dropped": 2,
+    "never_grasped": 6,
+    "held_at_end": 12,
+    "released_off_wall": 10,
+    "released_misaligned": 5,
+    "other": 0
+   }
+  },
+  {
+   "threshold": 0.9,
+   "success_rate": 0.26,
+   "failures": {
+    "dropped": 3,
+    "never_grasped": 6,
+    "held_at_end": 12,
+    "released_off_wall": 11,
+    "released_misaligned": 5,
+    "other": 0
+   }
+  }
+ ],
+ "best_threshold": 0.65
+}
