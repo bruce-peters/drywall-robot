@@ -1404,3 +1404,15 @@ Bruce pasted his Overleaf version into `docs/technical_report.tex`. Changes on t
 - **Trimmed to make room:** the +100-reward sim rows and the 1M ablation row (both still in the text), the
   diagnosis paragraph condensed, findings 3 and 4 merged.
 - Not compiled locally; page count to be checked on Overleaf.
+
+## 2026-11-20 — Submission video rebuilt with the round-2 results
+
+- New clips of the best policy (`bc_umi_sim_h8_wall_gmm`): an outside-region success (seed 31000, 6 mm) and
+  an in-region near miss (seed 30001, released flush but 25 mm off target). Re-running the in-region test
+  for the clip reproduced 93 % exactly.
+- Card text rewritten as plain sentences at Bruce's request (less AI-sounding). The old line "outside the
+  demos' region all learned policies stay below 35 %" was wrong after round 2 and is gone. The takeaways now
+  match the report (the wall frame and mixture head matter more than BC vs IQL; matched setup 63 vs 63 %).
+- Bruce's name removed from the title card (his request).
+- Cards now wrap long lines and stay up for words / 4.5 s (min 3.5 s). The four longest failure clips play at
+  3–4x instead of 2x. Length 4.7 min (it was 6.0 min at 2x and 3.5 words/s, over the 5-minute limit).

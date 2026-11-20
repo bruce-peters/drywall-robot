@@ -3,7 +3,7 @@ explain each clip and interpret the failures.
 
     python scripts/make_submission_video.py            # -> media/submission_video.mp4
 
-Clips play at 2x (every second frame at 10 fps); title cards are 3.5 s. Every clip also carries its own
+Clips play at 2-4x (every n-th frame at 10 fps); title cards stay up long enough to read. Every clip also carries its own
 burned-in label (policy, test seed, outcome), except the original Part A clip, which the card introduces.
 """
 
@@ -21,59 +21,71 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 FPS = 10
 W, H = 1280, 480
 
-# (clip, speed-up, title-card lines). The first line is the heading.
+# (clip, speed-up, title-card lines). The first line is the heading; long lines wrap on the card.
 STORY = [
     (None, 1, ["Learning drywall panel placement",
-               "UMI-style demonstrations  +  simulation-based offline RL",
-               "Franka Panda with a suction plate, MuJoCo. Clips play at 2x speed; labels are burned in."]),
+               "Behaviour cloning and offline RL from UMI-style demos and simulation",
+               "Everything here runs in MuJoCo, and the clips are sped up 2-4x."]),
     ("media/scripted_seed0.mp4", 2,
-     ["1. The environment (easy challenge) - scripted controller, no learning",
-      "Pick the panel off the rack, rotate it, press it flush onto the wall target, release onto the ledge.",
-      "This controller also plays the 'human' that records the UMI-style demonstrations."]),
+     ["1. The task (easy version)",
+      "The robot picks the panel off the rack, turns it, presses it flat on the wall target and lets go onto the ledge.",
+      "This is my scripted controller, not a learned policy. It also stands in for the human recording the UMI demos."]),
     ("media/hard_challenge/scripted_hard_seed1.mp4", 2,
-     ["2. Hard challenge - wall and rack anywhere around the robot",
-      "Same scripted demonstrator, now swinging around the base (rack behind the robot here).",
-      "Demos cover only part of these layouts; simulation covers all of them."]),
+     ["2. The hard version",
+      "Here the wall and the rack can be anywhere around the robot (in this one the rack is behind it).",
+      "The demos only cover part of these layouts, so anything outside that has to come from simulation."]),
     ("media/easy_challenge/bc_umi_h8_success.mp4", 2,
-     ["3. Learned policy: behaviour cloning on the UMI demos (easy challenge)",
-      "MLP with 8-step action chunks; 80 % success on 100 held-out test layouts."]),
-    ("media/easy_challenge/bc_umi_h8_failure.mp4", 2,
-     ["FAILURE: behaviour cloning stops just above the panel and never grasps",
-      "Near the goal the demonstrated motions are tiny, so the regressed motion averages to ~0",
-      "before the state where the demos switch suction on - a BC fixed point."]),
+     ["3. Behaviour cloning on the UMI demos (easy version)",
+      "A small network that predicts 8 actions at a time. It succeeds on 80 out of 100 test layouts."]),
+    ("media/easy_challenge/bc_umi_h8_failure.mp4", 3,
+     ["FAILURE: it stops just above the panel and never grabs it",
+      "Close to the panel the demo motions are tiny, so the network's average motion there is basically zero,",
+      "and it never reaches the point where the demos turn the suction on."]),
     ("media/easy_challenge/iql_umi_sim_b3_success.mp4", 2,
-     ["4. Offline RL: IQL (implemented from scratch) on UMI + simulated data",
-      "Removes most grasp failures, but 71 % overall - not better than BC (80 %)."]),
-    ("media/easy_challenge/iql_umi_sim_b3_failure.mp4", 2,
-     ["FAILURE: IQL places the panel but releases it more than 2 mm off the wall",
-      "RL changed how the policy fails more than how often: release timing is one bit,",
-      "judged by a sparse success reward several steps later."]),
+     ["4. Offline RL (IQL, which I implemented from scratch) on demos plus sim data",
+      "It mostly fixes the grabbing problem, but overall it gets 71 % (BC got 80 %)."]),
+    ("media/easy_challenge/iql_umi_sim_b3_failure.mp4", 3,
+     ["FAILURE: the panel is in the right spot, but it lets go more than 2 mm off the wall",
+      "RL changed how the policy fails more than how often. Letting go is a single on/off decision,",
+      "and the success reward only shows up a few steps after it."]),
     ("media/hard_challenge/bc_umi_h8_in_failure.mp4", 2,
-     ["5. Hard challenge: BC trained on the demos alone",
-      "6 % inside the demos' region, 0 % outside it (never grasps a rack it has not seen).",
-      "FAILURE shown: suction released mid-air -> the panel drops."]),
+     ["5. Hard version: behaviour cloning on the demos alone",
+      "6 % inside the region the demos cover and 0 % outside it (it never even grabs a rack it hasn't seen).",
+      "FAILURE shown here: it turns the suction off in mid-air and drops the panel."]),
     ("media/hard_challenge/bc_umi_sim_h8_ood_success.mp4", 2,
-     ["6. Adding simulated data extends the policy beyond the demos",
-      "BC on UMI + sim successes: 55 % inside, 20 % OUTSIDE the demos' region (vs 0 %).",
-      "This layout was never covered by a demonstration."]),
+     ["6. Adding sim data lets the policy work outside the demos",
+      "With sim data, BC gets 55 % inside the demo region and 20 % outside it (up from 0 %).",
+      "No demo ever covered this layout."]),
     ("media/hard_challenge/iql_umi_sim_fix_b3_in_success.mp4", 2,
-     ["7. Best offline-RL policy on the hard challenge, after diagnosing it",
-      "Rescaled rewards, 50/50 demo/sim batches, up-weighted release, 1M steps:",
-      "IQL 39 -> 65 % inside the demos' region (BC: 55 %), 22 -> 26 % outside."]),
-    ("media/hard_challenge/iql_umi_sim_fix_b3_in_failure.mp4", 2,
-     ["FAILURE: the panel is carried but never placed ('held at end')",
-      "It ends a median ~13 cm from the target: an approach-precision failure, not reluctance to release.",
-      "Training longer alone did not help (39 -> 33 %); outside the demos' region all learned policies stay below 35 %."]),
+     ["7. IQL again, once I figured out what was wrong with it",
+      "I shrank the rewards, gave every batch half demos and half sim data, weighted the let-go steps more and trained longer.",
+      "That took IQL from 39 % to 65 % inside the demo region (BC was at 55 %)."]),
+    ("media/hard_challenge/iql_umi_sim_fix_b3_in_failure.mp4", 4,
+     ["FAILURE: it carries the panel over but never places it",
+      "These episodes end a median of about 13 cm from the target, so it's an approach problem, not the policy refusing to let go.",
+      "Training longer on its own didn't help (it went from 39 % down to 33 %)."]),
+    ("media/hard_challenge/bc_umi_sim_h8_wall_gmm_ood_success.mp4", 2,
+     ["8. What actually made the big difference",
+      "I rotated the policy's inputs and outputs into the wall's frame, and gave it a mixture output so it can commit to one way "
+      "around the robot instead of averaging two.",
+      "BC with both gets 93 % inside the demo region and 74 % outside it. This layout is one of the outside ones."]),
+    ("media/hard_challenge/bc_umi_sim_h8_wall_gmm_in_failure.mp4", 4,
+     ["FAILURE: so close, but 25 mm off target (the limit is 20 mm)",
+      "It lets go flush on the ledge, just a bit too far to one side. Six of its seven failures inside the demo region "
+      "look like this, and they're all off to the same side.",
+      "This last bit of precision is where every learned policy I trained struggles."]),
     (None, 1, ["Takeaways",
-               "- Demos teach the motion; simulation is what covers layouts the demos never saw.",
-               "- Tuned offline RL (IQL) matched or beat BC on the same data, but not significantly.",
-               "- Every learned policy fails at the last centimetres and the release decision:",
-               "  deploy the learned policy for gross motion + a force-controlled, verified contact/release.",
-               "Code, data pipeline, results and lab notebook: see README.md / docs/technical_report.md"]),
+               "- Demos teach the motion, and simulation covers the layouts the demos never saw.",
+               "- How the policy sees the task (wall frame, mixture output) mattered more than BC vs offline RL.",
+               "- With the same setup IQL and BC came out even (63 % vs 63 % inside the demo region).",
+               "- On a real robot I'd use the learned policy for the big motions and a force-controlled,",
+               "  checked contact and release for the last few centimetres.",
+               "Code, results and the full lab notebook: github.com/bruce-peters/drywall-robot"]),
 ]
 
 
-def card(lines: list[str], seconds: float = 3.5) -> list[np.ndarray]:
+def card(lines: list[str], seconds: float | None = None) -> list[np.ndarray]:
+    """A title card. Lines wider than the frame wrap; it stays up long enough to read (~4.5 words/s)."""
     from PIL import Image, ImageDraw, ImageFont
 
     img = Image.new("RGB", (W, H), (18, 22, 30))
@@ -85,15 +97,27 @@ def card(lines: list[str], seconds: float = 3.5) -> list[np.ndarray]:
         except OSError:
             return ImageFont.load_default()
 
-    y = 150 - 18 * max(0, len(lines) - 3)
+    rows = []  # (text, is_heading, colour)
     for i, line in enumerate(lines):
         f = font(34 if i == 0 else 23)
         color = (255, 120, 100) if line.startswith("FAILURE") else ((240, 240, 240) if i == 0 else (190, 200, 215))
-        w = d.textlength(line, font=f)
-        d.text(((W - w) / 2, y), line, fill=color, font=f)
-        y += 58 if i == 0 else 36
-    frame = np.asarray(img)
-    return [frame] * int(seconds * FPS)
+        cur = ""
+        for word in line.split(" "):
+            if cur and d.textlength(cur + " " + word, font=f) > W - 100:
+                rows.append((cur, i == 0, color))
+                cur = word
+            else:
+                cur = f"{cur} {word}" if cur else word
+        rows.append((cur, i == 0, color))
+    height = sum(58 if head else 36 for _, head, _ in rows)
+    y = max(20, (H - height) / 2)
+    for text, head, color in rows:
+        f = font(34 if head else 23)
+        d.text(((W - d.textlength(text, font=f)) / 2, y), text, fill=color, font=f)
+        y += 58 if head else 36
+    if seconds is None:
+        seconds = max(3.5, sum(len(t.split()) for t in lines) / 4.5)
+    return [np.asarray(img)] * int(seconds * FPS)
 
 
 def clip(path: str, speed: int) -> list[np.ndarray]:
@@ -116,7 +140,7 @@ def main():
     args = ap.parse_args()
     frames = []
     for path, speed, lines in STORY:
-        frames += card(lines, 3.5 if path else 5.0)
+        frames += card(lines)
         if path:
             if not Path(path).exists():
                 raise SystemExit(f"missing clip {path}")
