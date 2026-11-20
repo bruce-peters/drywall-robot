@@ -1387,3 +1387,20 @@ At Bruce's request the README now only covers setup: requirements, install (venv
 and troubleshooting. The detailed results and design sections were removed from the README (they are in the
 report, this notebook and git history). Smoke test: `eval_policy.py --challenge hard --test in --n 2` with the
 best BC checkpoint and `scripted` ran fine.
+
+## 2026-11-20 — Technical report (.tex) brought up to date
+
+Bruce pasted his Overleaf version into `docs/technical_report.tex`. Changes on top of it:
+- **Typos and fixes:** its/it's, "palced", "controler", "stablize", "pratical", "BC(which", "10\.Hz", "section weld"
+  → weld constraint, duplicate `fig:my_label` labels, the "[fact check later]" claim verified (pose noise is
+  supported, `pos_noise_std` / `rot_noise_std`, but 0 in every experiment), wall force threshold given in N,
+  repo link in the title block. The hard-table row "BC control (no action chunks)" was wrong (bc_umi_sim_h8 is
+  chunked) and is now "BC control (UMI + sim successes)".
+- **Round-2 content:** a methods paragraph on the wall frame and mixture head; hard table restructured (UMI + sim
+  noted once, data column dropped) with the wall-frame, mixture-head and β30 rows; findings rewritten (input
+  frame and head matter more than the algorithm; matched-setup IQL ties BC, p = 1 / 0.42; β30 hurts); a
+  near-miss paragraph for the best policy (in: 6 of 7 failures released misaligned at 20–30 mm; ood: 12 held,
+  5 off wall, 5 misaligned, 4 never grasped); collisions of the best policy 8 / 15 %; new conclusion.
+- **Trimmed to make room:** the +100-reward sim rows and the 1M ablation row (both still in the text), the
+  diagnosis paragraph condensed, findings 3 and 4 merged.
+- Not compiled locally; page count to be checked on Overleaf.
