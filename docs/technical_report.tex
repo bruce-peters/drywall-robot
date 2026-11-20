@@ -32,7 +32,7 @@ ledge within 2\,mm of the wall, a MuJoCo weld constraint holds it there to preve
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\textwidth]{environment-image.png}
+    \includegraphics[width=0.85\textwidth]{environment-image.png}
     \caption{A visual of the simulation. The 7-DoF Franka Panda is placed with the panel and target region in range, holding a blue suction end-effector.}
     \label{fig:sim}
 \end{figure}
@@ -55,7 +55,7 @@ successful) and \texttt{explore} (large variance and smooth noise, introducing l
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\textwidth]{umi-image.png}
+    \includegraphics[width=0.85\textwidth]{umi-image.png}
     \caption{Sample episodes from the dataset; each is a full run. To the left is the UMI-style camera recording, including the mirrors for implicit depth perception.}
     \label{fig:umi}
 \end{figure}
@@ -63,22 +63,7 @@ successful) and \texttt{explore} (large variance and smooth noise, introducing l
 \para{Recording format.} Episodes are recorded as a UMI dataset in UMI's own \texttt{.zarr} format. Each episode has 60\,Hz absolute EE poses in a world frame, a gripper (more accurately suction)
 state, $155^\circ$ fisheye wrist camera footage with mirrors (recorded at 10\,Hz to reduce file size), an external camera, the panel pose in the target frame, episode boundaries and success labels. No actions or rewards are stored.
 
-\begin{algorithm}[H]
-\caption{UMI episode to robot action conversion}
-\label{alg:umi2robot}
-\begin{algorithmic}[1]
-\Require one UMI episode (world-frame EE poses, timestamps, suction state)
-\Ensure robot actions at 10\,Hz
-\State Convert every EE pose from the world frame to the robot-base frame.
-\State Resample to 10\,Hz: interpolate positions linearly, rotations with slerp, and hold the suction state.
-\State Take the difference between each pair of consecutive poses.
-\State Divide each difference by the step limit (2\,cm, $3^\circ$) and clip it to $[-1, 1]$.
-\State Set the suction bit to $+1$ if the panel is attached after the step, else $-1$.
-\State Flag any pose outside the robot's workspace and any action that had to be clipped.
-\end{algorithmic}
-\end{algorithm}
-
-The learning state is 37-D (EE pose, suction, panel and target poses, panel-in-target pose) for the easy task, and
+\para{UMI to robot actions.} Each episode's EE poses are moved into the robot-base frame, resampled to 10\,Hz (linear for positions, slerp for rotations), differenced, divided by the step limit and clipped to $[-1,1]$; the suction bit is $+1$ if the panel is attached after the step, and out-of-workspace poses and clipped actions are flagged. The learning state is 37-D (EE pose, suction, panel and target poses, panel-in-target pose) for the easy task, and
 46-D for the hard task (which adds the panel pose in the EE frame). All rotations use a continuous 6D
 representation because the tool-down EE quaternion gets close to $w \approx 0$ and flips sign many times per episode (which is bad for training).
 
@@ -120,20 +105,7 @@ The actor is extracted with advantage-weighted regression, maximizing
 with the weight $\exp(\beta A)$ clipped at 100 and $\beta \in \{1, 3, 10, 30\}$ (with the mixture head, the weights multiply its log-likelihood instead).
 Training happens entirely offline, reading only from the fixed dataset.
 
-\para{Hard-task IQL fixes}:
-\begin{enumerate}[nosep]
-  \item \para{Shrink rewards 10$\times$ (scale 0.1 $\to$ 0.01):} the actor weights each example by
-    $\exp(\beta A)$, i.e.\ by how much better than average that action was. The hard task pays $+1000$ for
-    success, so these weights blew up and 11--17\pct{} of examples hit the cap of 100. Every capped example
-    counts the same, so the actor couldn't tell good actions from great ones. With smaller rewards,
-    fewer than 0.5\pct{} hit the cap.
-  \item \para{50/50 demo/sim batches:} the data has 109k time steps from UMI demos but 650k from sim, so a random batch was only ${\sim}$14\pct{} demos. Now each batch is half demos, half sim.
-  \item \para{Count let-go examples $\times 10$:} while holding the panel, the right answer is ``keep
-    holding'' on about 199 of every 200 steps, so the policy learned to never let go. Counting each
-    let-go step 10 times in the suction loss fixes that.
-  \item \para{1M steps instead of 200k}, to give the policy more time to stabilize.
-\end{enumerate}
-These fixes brought hard IQL success from 39\pct{} to 65\pct{} in-region.
+\para{Hard-task IQL fixes.} (1) \emph{Shrink rewards 10$\times$}: with $+1000$ for success the $\exp(\beta A)$ weights blew up and 11--17\pct{} of examples hit the cap of 100, so the actor couldn't tell good actions from great ones (after: under 0.5\pct). (2) \emph{50/50 demo/sim batches}: demos were only ${\sim}$14\pct{} of the data (109k vs 650k steps). (3) \emph{Count let-go steps $\times 10$}: ``keep holding'' is right on 199 of every 200 held steps, so the policy learned to never let go. (4) \emph{1M steps instead of 200k}. Together they took hard IQL from 39\pct{} to 65\pct{} in-region.
 
 \para{Offline datasets.} The easy dataset is 1,000 episodes from scripted plus noisy-BC behaviour
 (57\pct{} success), and the hard one is 2,000 \texttt{explore} episodes (64\pct{} success, 10\pct{} drops,
@@ -197,28 +169,22 @@ Other results charts can be found in \texttt{media/*/comparison*.png} and \textt
   \item \para{The input frame and output head mattered more than the learning algorithm.} The wall frame more than doubled success outside the demo region for both BC (20 $\to$ 47\pct, $p = 1.4 \times 10^{-4}$) and IQL (26 $\to$ 53\pct, $p = 10^{-4}$). The mixture head then took BC from 63/47\pct{} to 93/74\pct{} ($p < 10^{-4}$ on both test sets), and IQL $\beta 30$ from 41\pct{} to 75\pct{} in-region.
   \item \para{With the same setup, offline RL ties behaviour cloning.} IQL $\beta 3$ with the wall frame and BC with the wall frame score 63 vs 63\pct{} in-region ($p = 1$) and 53 vs 47\pct{} outside ($p = 0.42$). Before that, the fixes took IQL from 39\pct{} to 65\pct, past BC's 55\pct{} but not significantly ($p = 0.21$), and on the easy task a tuned let-go cutoff took IQL to 81\pct, level with BC's 80\pct. Caveat: after the fixes IQL weights almost all examples equally, so its gains likely come from the data mix and let-go weighting more than from the RL itself. The one cell I did not get to run is IQL with both the wall frame and the mixture head.
   \item \para{Sharper advantage weighting hurts.} $\beta 30$ is significantly worse than $\beta 3$ (41 vs 65\pct{} in, 7 vs 26\pct{} out, $p \le 0.0012$): a few high-advantage samples dominate the weights, so the actor copies the critic's mistakes.
-  \item \para{Reward balance and data mix matter.} With success worth $+100$, the discounted success
-    ($\approx 22$ from 150 steps out) was only worth about 70 steps of moderate error, so IQL learned to just keep holding the panel; raising it $\times 10$ helped $\beta 10$ ($2 \to 16$\pct{} in-region). Adding the demos to the sim data also helped IQL in both tasks (easy 71 vs 58--61\pct; hard 39 vs 16\pct).
+  \item \para{Reward balance and data mix matter.} With success worth only $+100$, IQL learned to keep holding the panel; $\times 10$ helped $\beta 10$ ($2 \to 16$\pct). Adding demos to the sim data helped IQL in both tasks (easy 71 vs 58--61\pct; hard 39 vs 16\pct).
 \end{enumerate}
 
 \section{Failure analysis}\label{sec:failures}
 
 \para{Where the policies fail.} Nearly every failure of the learned policies happens in the last few
-centimetres or at the suction decision. Easy BC either stalled about 9\,mm above the panel without grasping (a regression fixed point, since the tiny demonstrated motions near the goal average out to zero) or released 7\,mm short of the wall. Easy IQL fixed the grasp (never-grasped went from 16--27 to 3--9) but then released off the wall. On the hard task, BC on demos
-released mid-air (50 drops) or toggled suction at the target. The base-frame sim-trained policies were dominated by
+centimetres or at the suction decision. Easy BC either stalled about 9\,mm above the panel without grasping (the tiny demonstrated motions near the goal average out to zero) or released 7\,mm short of the wall; easy IQL fixed the grasp but then released off the wall. The base-frame sim-trained policies were dominated by
 ``held at end'', where the panel gets carried but never placed. When I measured it, that turned out to be
 mostly an approach failure where IQL's held episodes end a median 10--20\,cm from the target, while the BC
 control's end 3\,cm away. The fact that BC (which has no reward) suffers from it too means reward hacking can't be the whole explanation.
 
 \para{The best policy's failures are near misses.} Six of its seven in-region failures released the panel flush on the ledge but 20--30\,mm from the target, just outside the 20\,mm tolerance, and all offset to the same side, which points to a small systematic bias rather than a wrong motion. Outside the demo region its 26 failures are 12 held at end, 5 released off the wall, 5 released misaligned (four of them within 25\,mm) and 4 never grasped.
 
-\para{Diagnosing hard IQL} is what led to the fixes: the weights were saturated (11--17\pct{} of samples at the $\exp(\beta A)$ clip), release was rare (1 in 144--224 suction-on states), and the runs were under-trained. Training longer on its own did not help ($39 \to 33$\pct), but the combination of fixes did (65\pct).
+\para{Training IQL.} Training longer on its own did not help ($39 \to 33$\pct), but the combination of fixes did (65\pct). Even at 1M steps, validation still swung about $\pm 10$\pct{} between checkpoints.
 
-\para{Critic convergence.} At 200k steps the values are still drifting and validation swings
-$\pm$15--20\pct{} between checkpoints. At 1M steps the values are nearly flat, but the validation still swung
-about $\pm 10$\pct.
-
-\para{Collisions.} IQL policies collide more than the BC control trained on the same data. They imitate the collision-heavy exploration data with only partial advantage reweighting. BC on the demos alone collides the most (65--84\pct), because it is mostly outside its training distribution. The best policy collides in 8\pct{} (in) and 15\pct{} (out) of episodes.
+\para{Collisions.} IQL collides more than BC on the same data, since it imitates the collision-heavy exploration data with only partial reweighting. The best policy collides in 8\pct{} (in) and 15\pct{} (out) of episodes.
 
 \para{Other limitations.} I assume a rigid panel and ideal suction, perfect pose estimates, and perfect simulated information (real UMI data would be much messier than the data BC and IQL were trained on).
 
