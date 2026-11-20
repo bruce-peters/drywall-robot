@@ -1416,3 +1416,11 @@ Bruce pasted his Overleaf version into `docs/technical_report.tex`. Changes on t
 - Bruce's name removed from the title card (his request).
 - Cards now wrap long lines and stay up for words / 4.5 s (min 3.5 s). The four longest failure clips play at
   3–4x instead of 2x. Length 4.7 min (it was 6.0 min at 2x and 3.5 words/s, over the 5-minute limit).
+
+## 2026-11-20 — Voiceover added to the submission video
+
+- Bruce recorded a voiceover (4:58.7 wav, speech from 0:00 to 4:56.6) over the muted 4:42.8 video, using a
+  script timed to each card. It is stored as `media/voiceover.m4a` (loudness-normalized to -16 LUFS, AAC 160k).
+- `make_submission_video.py --audio` (default `media/voiceover.m4a`, `''` = silent) lays it over the video
+  from t = 0 and holds the takeaways card until the audio ends (ffmpeg `tpad` clone + `-shortest`).
+  Final video 4:58.8, still under the 5-minute limit.

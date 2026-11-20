@@ -137,6 +137,8 @@ def clip(path: str, speed: int) -> list[np.ndarray]:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="media/submission_video.mp4")
+    ap.add_argument("--audio", default="media/voiceover.m4a",
+                    help="voiceover laid over the video from t = 0; the last card is held until it ends ('' = silent)")
     args = ap.parse_args()
     frames = []
     for path, speed, lines in STORY:
@@ -145,8 +147,20 @@ def main():
             if not Path(path).exists():
                 raise SystemExit(f"missing clip {path}")
             frames += clip(path, speed)
-    imageio.mimsave(args.out, frames, fps=FPS, macro_block_size=16)
-    print(f"wrote {args.out}: {len(frames)} frames, {len(frames) / FPS / 60:.1f} min")
+    silent = args.out if not args.audio else str(Path(args.out).with_suffix(".silent.mp4"))
+    imageio.mimsave(silent, frames, fps=FPS, macro_block_size=16)
+    if args.audio:
+        import subprocess
+
+        import imageio_ffmpeg
+
+        subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", silent, "-i", args.audio,
+                        "-filter_complex", "[0:v]tpad=stop_mode=clone:stop_duration=120[v]",
+                        "-map", "[v]", "-map", "1:a", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-c:a", "copy", "-shortest", args.out], check=True)
+        Path(silent).unlink()
+    print(f"wrote {args.out}: {len(frames)} video frames ({len(frames) / FPS / 60:.1f} min before the voiceover)")
 
 
 if __name__ == "__main__":
