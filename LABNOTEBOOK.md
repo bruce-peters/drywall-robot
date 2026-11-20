@@ -1367,3 +1367,13 @@ learning algorithm. At a matched architecture IQL ties BC. The untested fair cel
 Charts: `media/hard_challenge/comparison_round2_{in,ood}.png`; training curves
 `media/hard_challenge/training_{iql_umi_sim_fix_b30,iql_umi_sim_fix_b3_wall,iql_umi_sim_fix_b30_wall,iql_umi_sim_fix_b30_wall_gmm,bc_umi_sim_h8_wall,bc_umi_sim_h8_wall_gmm}.png`.
 The McNemar script is the scratchpad `mcnemar2.py` (exact binomial, `math.comb`; scipy is not installed).
+
+## 2026-11-19 — Push to GitHub; hard-challenge videos were never committed
+
+- No remote was set up. The user is creating the GitHub repo; the push is done with the git CLI.
+- Found: `.gitignore` had `*.mp4` with the exception `!media/*.mp4`, which only matches the top level.
+  The 9 videos in `media/hard_challenge/` were ignored and never committed. (The `media/easy_challenge/`
+  videos were tracked only because they had been force-added.)
+- Fix: changed the exception to `!media/**/*.mp4` and committed the 9 videos (about 7 MB total).
+- Checked blob sizes before the push: the largest file in history is 9.4 MB (`runs/**/log.jsonl`), well under
+  GitHub's 100 MB per-file limit. The loose object store is about 98 MB.
