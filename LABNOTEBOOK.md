@@ -1377,3 +1377,13 @@ The McNemar script is the scratchpad `mcnemar2.py` (exact binomial, `math.comb`;
 - Fix: changed the exception to `!media/**/*.mp4` and committed the 9 videos (about 7 MB total).
 - Checked blob sizes before the push: the largest file in history is 9.4 MB (`runs/**/log.jsonl`), well under
   GitHub's 100 MB per-file limit. The loose object store is about 98 MB.
+
+## 2026-11-20 — README rewritten as setup-only
+
+At Bruce's request the README now only covers setup: requirements, install (venv activation per shell),
+`pytest` check (42 passed), the scripted demo and viewers, testing the committed checkpoints with
+`eval_policy.py` (no data or GPU needed), optional dataset rebuild and retraining (exact flags of
+`bc_umi_sim_h8_wall_gmm` and `iql_umi_sim_fix_b3_wall` taken from their `log.jsonl` config lines), layout
+and troubleshooting. The detailed results and design sections were removed from the README (they are in the
+report, this notebook and git history). Smoke test: `eval_policy.py --challenge hard --test in --n 2` with the
+best BC checkpoint and `scripted` ran fine.
